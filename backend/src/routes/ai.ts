@@ -119,24 +119,32 @@ router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
   const model = usesSarvam ? SARVAM_MODEL : creds.model
 
-  const systemPrompt = `You extract job posting information from raw webpage text. Return ONLY valid JSON, no markdown, no explanation.`
-  const userMessage = `Extract the job details from this webpage text. Return JSON with exactly these fields:
+  const systemPrompt = `You are a precise job description extractor. Your task: find the ONE job being advertised in the text and extract its details. Return ONLY valid JSON — no markdown, no explanation.`
+  const userMessage = `This text is from a job page. Extract the PRIMARY job being advertised (ignore any other job listings or UI navigation text). Return this exact JSON:
 {
-  "title": "job title",
-  "company": "company name",
-  "description": "full job description text, preserve all details",
-  "skills": ["skill1", "skill2"],
-  "requirements": ["requirement1", "requirement2"]
+  "title": "exact job title",
+  "company": "hiring company name",
+  "location": "city/remote/hybrid if mentioned",
+  "description": "full body of the job description — responsibilities, about the role, what you will do, about the company. Copy verbatim, preserve all paragraphs. Must be at least 150 words if present.",
+  "skills": ["only technical tools, languages, frameworks, platforms — no soft skills"],
+  "requirements": ["each specific requirement: years of experience, education, certifications, domain expertise"]
 }
-If a field is not found, use empty string or empty array.
 
-PAGE TEXT:
-${rawText.slice(0, 15000)}`
+IGNORE: navigation links, 'Easy Apply', 'Save', 'Promoted', 'Viewed', alumni counts, page UI labels.
+FOCUS ON: the section titled 'About the job', 'Job Description', 'Responsibilities', 'What you'll do', 'About us'.
+
+If a field is absent use "" or [].
+
+TEXT:
+${rawText.slice(0, 14000)}`
 
   try {
-    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 2000 })
+    console.log(`[extract-jd] calling ${providerUrl} model=${model} textLen=${rawText.length}`)
+    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 4000 })
+    console.log(`[extract-jd] raw response (first 500): ${raw.slice(0, 500)}`)
     const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
     const jd = JSON.parse(cleaned)
+    console.log(`[extract-jd] parsed JD title="${jd.title}" company="${jd.company}"`)
     jd.url = url || ''
     res.json({ success: true, data: { ...jd, _extractedBy: `${model}` } })
   } catch (e: unknown) {

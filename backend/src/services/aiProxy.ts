@@ -39,12 +39,15 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     ],
   }
 
+  console.log(`[callAI] POST ${url} model=${opts.model}`)
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
   if (!res.ok) {
     const err = await res.text()
+    console.error(`[callAI] error ${res.status}: ${err.slice(0, 500)}`)
     throw new Error(`AI provider error ${res.status}: ${err.slice(0, 300)}`)
   }
   const data = await res.json() as { choices: { message: { content: string } }[] }
+  console.log(`[callAI] full response: ${JSON.stringify(data).slice(0, 1000)}`)
   return data.choices[0].message.content
 }
 

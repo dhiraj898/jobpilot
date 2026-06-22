@@ -43,7 +43,7 @@ async function scrapeAndExtract(): Promise<void> {
 
   await ensureContentScript(tabId)
 
-  setState({ loadingMsg: 'Reading page…' })
+  setState({ loadingMsg: 'Reading page… (waiting for job to load)' })
   let raw: { rawText: string; url: string; pageTitle: string }
   try {
     const res = await chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_RAW' }) as { ok: boolean; data: typeof raw }
@@ -72,63 +72,115 @@ function renderResume(): HTMLElement {
   const s = getState()
   const wrap = h('div', 'tab-content')
 
-  const scrapeBtn = btn('Scrape & extract JD with AI', async () => {
-    setState({ loading: true, error: '', jd: null, loadingMsg: '' })
+  // ── Step 1: Scrape ──────────────────────────────────────────────────────────
+  const scrapeBtn = btn('⟳ Scrape & extract JD with AI', async () => {
+    setState({ loading: true, error: '', jd: null, tailored: '', loadingMsg: '' })
     render()
     await scrapeAndExtract()
   }, 'btn primary full')
-
-  wrap.append(h('h3', 'section-title', 'Job description'), scrapeBtn)
+  wrap.append(scrapeBtn)
   if (s.error) wrap.append(h('p', 'err', s.error))
 
+  // ── Step 2: Full JD display ─────────────────────────────────────────────────
   if (s.jd) {
     const jd = s.jd
-    const meta = h('div', 'jd-meta')
-    meta.append(h('strong', '', jd.title || '—'))
-    if (jd.company) meta.append(document.createTextNode(` @ ${jd.company}`))
-    meta.append(h('span', 'chars', `${jd.description.length.toLocaleString()} chars captured`))
-    wrap.append(meta)
 
+    // Header card
+    const card = h('div', 'jd-card')
+    const titleLine = h('div', 'jd-title-line')
+    titleLine.append(h('strong', 'jd-role', jd.title || '—'))
+    if (jd.company) titleLine.append(h('span', 'jd-company', jd.company))
+    card.append(titleLine)
+    if ((jd as any).location) card.append(h('span', 'jd-loc', (jd as any).location))
+    wrap.append(card)
+
+    // Skills
     if (jd.skills.length) {
       const tags = h('div', 'tags')
-      jd.skills.slice(0, 8).forEach(sk => tags.append(h('span', 'tag', sk)))
+      jd.skills.forEach(sk => tags.append(h('span', 'tag', sk)))
       wrap.append(tags)
     }
 
-    wrap.append(h('label', 'lbl', 'Your base resume (paste here)'))
-    const resumeEl = ta('Paste your resume here…')
-    resumeEl.rows = 6
+    // Full description — collapsible
+    if (jd.description) {
+      const descWrap = h('div', 'jd-desc-wrap')
+      const descEl = h('div', 'jd-desc', jd.description)
+      let expanded = false
+      const toggle = btn('Show full JD ▾', () => {
+        expanded = !expanded
+        descEl.classList.toggle('expanded', expanded)
+        toggle.textContent = expanded ? 'Collapse ▴' : 'Show full JD ▾'
+      }, 'btn ghost-sm')
+      descWrap.append(descEl, toggle)
+      wrap.append(descWrap)
+    }
+
+    // Requirements
+    if (jd.requirements.length) {
+      const reqWrap = h('div', 'req-list')
+      reqWrap.append(h('p', 'lbl', 'Requirements'))
+      jd.requirements.forEach(r => {
+        const li = h('div', 'req-item')
+        li.append(document.createTextNode('• ' + r))
+        reqWrap.append(li)
+      })
+      wrap.append(reqWrap)
+    }
+
+    // ── Step 3: CV redraft ──────────────────────────────────────────────────────
+    const divider = h('div', 'section-divider')
+    divider.append(h('span', '', 'Redraft your CV for this role'))
+    wrap.append(divider)
+
+    wrap.append(h('p', 'lbl', 'Paste your current CV / resume'))
+    const resumeEl = ta('Paste your CV here…')
+    resumeEl.rows = 7
+    // Restore from state if previously pasted
+    if (s.baseResume) resumeEl.value = s.baseResume
+    resumeEl.oninput = () => setState({ baseResume: resumeEl.value })
     wrap.append(resumeEl)
 
-    const tailorBtn = btn('Tailor resume with AI', async () => {
+    const tailorBtn = btn('Redraft CV with AI →', async () => {
       const base = resumeEl.value.trim()
-      if (!base) { alert('Paste your base resume above first'); return }
-      setState({ loading: true, loadingMsg: 'Tailoring resume…' }); render()
+      if (!base) { resumeEl.focus(); resumeEl.placeholder = 'Paste your CV first!'; return }
+      setState({ loading: true, loadingMsg: 'Redrafting CV for this role…' }); render()
       try {
         const result = await api.tailorResume(jd.description, base)
-        setState({ tailored: result.tailored, loading: false, loadingMsg: '' }); render()
+        setState({ tailored: result.tailored, baseResume: base, loading: false, loadingMsg: '' }); render()
       } catch (e) {
-        setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Error' }); render()
+        setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Tailoring failed' }); render()
       }
-    }, 'btn primary')
+    }, 'btn primary full')
     wrap.append(tailorBtn)
   }
 
+  // ── Step 4: Tailored output ──────────────────────────────────────────────────
   if (s.tailored) {
-    wrap.append(h('h3', 'section-title', 'Tailored resume'))
-    const out = ta('', s.tailored); out.rows = 10
-    const row = h('div', 'row')
-    row.append(
-      btn('Copy', () => navigator.clipboard.writeText(s.tailored)),
-      btn('Save to tracker', async () => {
-        if (!s.jd) return
-        try {
-          await api.saveApp({ role: s.jd.title, company: s.jd.company, url: s.jd.url, source: 'extension', status: 'applied', tailoredResume: s.tailored })
-          alert('Saved!')
-        } catch { alert('Could not save — are you signed in?') }
-      }),
-    )
-    wrap.append(out, row)
+    const divider2 = h('div', 'section-divider success')
+    divider2.append(h('span', '', '✓ Redrafted CV'))
+    wrap.append(divider2)
+
+    const out = ta('', s.tailored)
+    out.rows = 12
+    out.readOnly = true
+    wrap.append(out)
+
+    const actions = h('div', 'row')
+    const copyBtn = btn('Copy to clipboard', () => {
+      navigator.clipboard.writeText(s.tailored)
+      copyBtn.textContent = 'Copied!'
+      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard' }, 2000)
+    }, 'btn primary')
+    const saveBtn = btn('Save to tracker', async () => {
+      if (!s.jd) return
+      try {
+        await api.saveApp({ role: s.jd.title, company: s.jd.company, url: s.jd.url, source: 'extension', status: 'saved', tailoredResume: s.tailored })
+        saveBtn.textContent = 'Saved!'
+        setTimeout(() => { saveBtn.textContent = 'Save to tracker' }, 2000)
+      } catch { alert('Could not save — are you signed in?') }
+    }, 'btn')
+    actions.append(copyBtn, saveBtn)
+    wrap.append(actions)
   }
 
   return wrap
@@ -262,4 +314,31 @@ document.addEventListener('DOMContentLoaded', () => {
   root = document.getElementById('root')!
   subscribe(render)
   render()
+
+  // Clear cached JD when the active tab navigates to a different job URL
+  let lastJobId: string | null = null
+
+  function jobIdFromUrl(url: string): string | null {
+    const m = url.match(/currentJobId=(\d+)/)
+    return m ? m[1] : null
+  }
+
+  async function checkTabUrl() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.url) return
+    const jobId = jobIdFromUrl(tab.url)
+    if (jobId && jobId !== lastJobId) {
+      lastJobId = jobId
+      if (getState().jd) {
+        setState({ jd: null, tailored: '', contacts: [], error: '', outreachMsg: '' })
+        render()
+      }
+    }
+  }
+
+  checkTabUrl() // seed lastJobId on open so stale JD is cleared immediately
+  chrome.tabs.onActivated.addListener(() => checkTabUrl())
+  chrome.tabs.onUpdated.addListener((_id, info) => {
+    if (info.url) checkTabUrl()
+  })
 })

@@ -13,6 +13,7 @@ interface State {
   jd: JD | null
   contacts: Contact[]
   tailored: string
+  baseResume: string
   outreachMsg: string
   loading: boolean
   loadingMsg: string
@@ -25,7 +26,7 @@ const state: State = {
   token: localStorage.getItem('jp_token'),
   email: localStorage.getItem('jp_email'),
   activeTab: 'resume',
-  jd: null, contacts: [], tailored: '', outreachMsg: '',
+  jd: null, contacts: [], tailored: '', baseResume: '', outreachMsg: '',
   loading: false, loadingMsg: '', error: '',
 }
 
