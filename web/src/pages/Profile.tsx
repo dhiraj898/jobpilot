@@ -15,6 +15,7 @@ interface ProfileData {
   education: string
   certifications: string[]
   resumeFileName: string
+  resumeText: string
   hasAiKey: boolean
 }
 
@@ -22,7 +23,7 @@ const EMPTY: ProfileData = {
   name: '', currentTitle: '', currentCompany: '', location: '',
   yearsExp: 0, summary: '', rolesHeld: [], targetRoles: [],
   skills: [], education: '', certifications: [],
-  resumeFileName: '', hasAiKey: false,
+  resumeFileName: '', resumeText: '', hasAiKey: false,
 }
 
 function TagInput({ label, values, onChange, placeholder }: {
@@ -121,6 +122,7 @@ export default function Profile() {
         education: parsed.education || p.education,
         certifications: parsed.certifications?.length ? parsed.certifications : p.certifications,
         resumeFileName: file.name,
+        resumeText: parsed.rawText || '',
       }))
       setPhase('edit')
     } catch (e: unknown) {
