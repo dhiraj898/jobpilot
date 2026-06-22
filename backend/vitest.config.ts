@@ -8,6 +8,7 @@ dotenv.config({ path: resolve(__dirname, '../.env'), override: true })
 export default defineConfig({
   test: {
     environment: 'node',
+    exclude: ['dist/**', 'node_modules/**'],
     env: {
       ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || '',
       JWT_SECRET: process.env.JWT_SECRET || '',

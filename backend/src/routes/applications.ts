@@ -7,9 +7,11 @@ router.use(requireAuth)
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { status, source, limit = '20', offset = '0' } = req.query
-  const where: Record<string, string> = { userId: req.userId! }
-  if (status) where.status = status as string
-  if (source) where.source = source as string
+  const where = {
+    userId: req.userId!,
+    ...(status ? { status: status as string } : {}),
+    ...(source ? { source: source as string } : {}),
+  }
   const [applications, total] = await db.$transaction([
     db.application.findMany({
       where, orderBy: { appliedAt: 'desc' },
@@ -37,19 +39,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   const { status, notes, url } = req.body
-  const existing = await db.application.findFirst({ where: { id: req.params.id, userId: req.userId } })
+  const id = String(req.params.id)
+  const existing = await db.application.findFirst({ where: { id, userId: req.userId } })
   if (!existing) return res.status(404).json({ success: false, error: 'Not found' })
   const updated = await db.application.update({
-    where: { id: req.params.id },
-    data: { status, notes, url }
+    where: { id },
+    data: { ...(status !== undefined ? { status: String(status) } : {}), ...(notes !== undefined ? { notes: String(notes) } : {}), ...(url !== undefined ? { url: String(url) } : {}) }
   })
   res.json({ success: true, data: updated })
 })
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  const existing = await db.application.findFirst({ where: { id: req.params.id, userId: req.userId } })
+  const id = String(req.params.id)
+  const existing = await db.application.findFirst({ where: { id, userId: req.userId } })
   if (!existing) return res.status(404).json({ success: false, error: 'Not found' })
-  await db.application.delete({ where: { id: req.params.id } })
+  await db.application.delete({ where: { id } })
   res.json({ success: true, data: null })
 })
 

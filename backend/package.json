@@ -9,7 +9,9 @@
   },
   "vitest": {
     "environment": "node",
-    "setupFiles": ["./tests/setup.ts"],
+    "setupFiles": [
+      "./tests/setup.ts"
+    ],
     "env": {
       "ENCRYPTION_KEY": "8bb67a7c4bb805c06eec07da1f64fbc37a9a5095e227240a8a74afb76cf86008",
       "JWT_SECRET": "52ca59b1fff1ab65b8d1f20b52e2b7d3f7822796cff0f5e6b7d2264283172ded",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.0.0",

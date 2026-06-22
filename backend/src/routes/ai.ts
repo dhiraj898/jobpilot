@@ -27,7 +27,7 @@ router.post('/tailor-resume', async (req: AuthRequest, res: Response) => {
   const userMessage = `Job Title: ${jobTitle || ''}\nCompany: ${company || ''}\n\nJD:\n${jobDescription}\n\nRESUME:\n${baseResume}`
 
   try {
-    const tailored = await callAI({ ...creds, providerUrl: creds.provider, systemPrompt, userMessage, maxTokens: 3000 })
+    const tailored = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 3000 })
     res.json({ success: true, data: { tailoredResume: tailored } })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI call failed' })
@@ -46,7 +46,7 @@ router.post('/outreach', async (req: AuthRequest, res: Response) => {
   const userMessage = `Sender: ${senderName || ''}\nRole: ${jobTitle} at ${company}\nContacts: ${JSON.stringify(contacts)}`
 
   try {
-    const raw = await callAI({ ...creds, providerUrl: creds.provider, systemPrompt, userMessage, maxTokens: 1500 })
+    const raw = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 1500 })
     const messages = JSON.parse(raw)
     res.json({ success: true, data: { messages } })
   } catch (e: unknown) {
@@ -66,9 +66,40 @@ router.post('/match-score', async (req: AuthRequest, res: Response) => {
   const userMessage = `JD: ${jobDescription}\n\nRESUME: ${resumeText}`
 
   try {
-    const raw = await callAI({ ...creds, providerUrl: creds.provider, systemPrompt, userMessage, maxTokens: 500 })
+    const raw = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 500 })
     const result = JSON.parse(raw)
     res.json({ success: true, data: result })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI call failed' })
+  }
+})
+
+// Short aliases used by the Chrome extension
+router.post('/tailor', async (req: AuthRequest, res: Response) => {
+  const { jd } = req.body
+  if (!jd) return res.status(400).json({ success: false, error: 'jd required' })
+  const creds = await getAiCreds(req.userId!, res)
+  if (!creds) return
+  const systemPrompt = `You are an expert resume writer. Tailor the user's resume to the job description. Return ONLY the tailored resume text.`
+  const userMessage = `JD:\n${jd}\n\nPlease tailor my resume to this job description.`
+  try {
+    const tailored = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 3000 })
+    res.json({ success: true, data: { tailored } })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI call failed' })
+  }
+})
+
+router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
+  const { jd, contacts } = req.body
+  if (!jd) return res.status(400).json({ success: false, error: 'jd required' })
+  const creds = await getAiCreds(req.userId!, res)
+  if (!creds) return
+  const systemPrompt = `Write a concise, friendly referral outreach LinkedIn message for the role described. Return ONLY the message text, no markdown.`
+  const userMessage = `JD:\n${jd}\n\nContacts: ${JSON.stringify(contacts || [])}`
+  try {
+    const message = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 600 })
+    res.json({ success: true, data: { message } })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI call failed' })
   }
