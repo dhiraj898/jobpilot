@@ -14,12 +14,6 @@ app.use(helmet())
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }))
 app.use(express.json({ limit: '10mb' }))
 
-// Temporary request logger for debugging
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`)
-  next()
-})
-
 app.use('/auth', authRouter)
 app.use('/profile', profileRouter)
 app.use('/applications', applicationsRouter)
