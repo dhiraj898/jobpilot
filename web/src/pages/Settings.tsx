@@ -27,10 +27,10 @@ const PROVIDERS = [
   {
     label: 'Sarvam AI',
     url: 'https://api.sarvam.ai/v1',
-    placeholder: 'your-sarvam-api-key',
+    placeholder: 'sk_…',
     models: [
-      { id: 'sarvam-m', label: 'Sarvam-M 30B — used for JD extraction ★' },
-      { id: 'sarvam-2b', label: 'Sarvam-2B (lightweight)' },
+      { id: 'sarvam-30b', label: 'Sarvam-30B — used for JD extraction ★' },
+      { id: 'sarvam-105b', label: 'Sarvam-105B (enterprise, complex reasoning)' },
     ],
   },
   {

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { getDecryptedKey } from './profile'
-import { callAI } from '../services/aiProxy'
+import { callAI, SARVAM_URL } from '../services/aiProxy'
 
 const router = Router()
 router.use(requireAuth)
@@ -105,8 +105,7 @@ router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
   }
 })
 
-const SARVAM_URL = 'https://api.sarvam.ai/v1'
-const SARVAM_MODEL = 'sarvam-m'  // Sarvam-M is the 30B model
+const SARVAM_MODEL = 'sarvam-30b'  // confirmed API model ID for Sarvam's 30B model
 
 // Extract structured JD from raw page text — uses Sarvam-M (30B) if configured, else falls back to user's provider
 router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
