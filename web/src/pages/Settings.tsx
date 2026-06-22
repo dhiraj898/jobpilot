@@ -108,6 +108,7 @@ export default function Settings() {
 
   return (
     <AppShell>
+      <div className="px-8 py-8 bg-gray-50 min-h-screen">
       <div className="max-w-2xl">
         <h1 className="text-xl font-medium text-gray-900 mb-6">Settings</h1>
         <div className="bg-white rounded-xl border border-gray-100 p-6">
@@ -180,6 +181,7 @@ export default function Settings() {
             {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save settings'}
           </button>
         </div>
+      </div>
       </div>
     </AppShell>
   )
