@@ -6,6 +6,16 @@ export interface JD {
 }
 export interface Contact { name: string; linkedin: string }
 
+export interface ScoreResult {
+  score: number
+  matchedKeywords: string[]
+  missingKeywords: string[]
+  topMissingForSummary: string[]
+  topMissingForBullets: string[]
+  breakdown: { skillsMatch: number; expMatch: number; summaryMatch: number }
+  summary: string
+}
+
 interface State {
   token: string | null
   email: string | null
@@ -13,8 +23,13 @@ interface State {
   jd: JD | null
   contacts: Contact[]
   tailored: string
-  baseResume: string       // fetched from profile automatically
-  profileName: string      // for personalising outreach
+  tailoredPayload: Record<string, unknown> | null
+  scoreBefore: ScoreResult | null
+  scoreAfter: ScoreResult | null
+  delta: number | null
+  changeLog: string[]
+  baseResume: string
+  profileName: string
   outreachMsg: string
   loading: boolean
   loadingMsg: string
@@ -27,7 +42,10 @@ const state: State = {
   token: localStorage.getItem('jp_token'),
   email: localStorage.getItem('jp_email'),
   activeTab: 'resume',
-  jd: null, contacts: [], tailored: '', baseResume: '', profileName: '', outreachMsg: '',
+  jd: null, contacts: [],
+  tailored: '', tailoredPayload: null,
+  scoreBefore: null, scoreAfter: null, delta: null, changeLog: [],
+  baseResume: '', profileName: '', outreachMsg: '',
   loading: false, loadingMsg: '', error: '',
 }
 

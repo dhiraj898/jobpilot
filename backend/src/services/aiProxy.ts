@@ -1,3 +1,8 @@
+interface HistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 interface AICallOptions {
   providerUrl: string
   model: string
@@ -5,6 +10,8 @@ interface AICallOptions {
   systemPrompt: string
   userMessage: string
   maxTokens?: number
+  temperature?: number
+  history?: HistoryMessage[]
 }
 
 const SARVAM_URL = 'https://api.sarvam.ai/v1'
@@ -30,13 +37,17 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     headers['anthropic-version'] = '2023-06-01'
   }
 
-  const body = {
+  const messages = [
+    { role: 'system', content: opts.systemPrompt },
+    ...(opts.history || []),
+    { role: 'user', content: opts.userMessage },
+  ]
+
+  const body: Record<string, unknown> = {
     model: opts.model,
     max_tokens: opts.maxTokens || 2000,
-    messages: [
-      { role: 'system', content: opts.systemPrompt },
-      { role: 'user', content: opts.userMessage },
-    ],
+    temperature: opts.temperature ?? 0.3,
+    messages,
   }
 
   console.log(`[callAI] POST ${url} model=${opts.model}`)
