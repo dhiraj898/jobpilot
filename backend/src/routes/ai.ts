@@ -1,8 +1,7 @@
 import { Router, Response } from 'express'
 import multer from 'multer'
-import pdfParseLib from 'pdf-parse'
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (pdfParseLib as any).default ?? pdfParseLib
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require('pdf-parse')
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { getDecryptedKey } from './profile'
 import { callAI, SARVAM_URL } from '../services/aiProxy'
@@ -29,8 +28,29 @@ router.post('/tailor-resume', async (req: AuthRequest, res: Response) => {
   const creds = await getAiCreds(req.userId!, res)
   if (!creds) return
 
-  const systemPrompt = `You are an expert resume writer. Tailor the resume to the job description. Keep structure, rewrite bullets to match JD keywords. Do NOT invent experience. Return ONLY the tailored resume text.`
-  const userMessage = `Job Title: ${jobTitle || ''}\nCompany: ${company || ''}\n\nJD:\n${jobDescription}\n\nRESUME:\n${baseResume}`
+  const systemPrompt = `You are a senior resume editor. Your job is surgical: you tailor the candidate's existing resume to a specific job description by editing only two things:
+
+1. OBJECTIVE / SUMMARY section — rewrite it to reflect the JD's priorities and language, while staying true to the candidate's actual experience level and career arc. Do not exaggerate.
+
+2. BULLET POINTS under each work experience — rephrase existing bullets to surface keywords and impact metrics that resonate with the JD. Do NOT invent new responsibilities, tools, or achievements that are not already in the resume. Preserve every factual detail (company, title, dates, numbers like $2M, 30%, 60 implementations).
+
+DO NOT CHANGE:
+- Section headings or their order
+- Company names, job titles, or employment dates
+- Education section
+- Skills section (leave exactly as-is)
+- Any metric or number unless you are making it more precise from the same sentence
+- Contact information
+
+Return ONLY the full tailored resume text, preserving the original formatting and structure exactly.`
+
+  const userMessage = `TARGET ROLE: ${jobTitle || ''} at ${company || ''}
+
+JOB DESCRIPTION:
+${jobDescription.slice(0, 3000)}
+
+CANDIDATE'S RESUME:
+${baseResume}`
 
   try {
     const tailored = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 3000 })
@@ -82,12 +102,36 @@ router.post('/match-score', async (req: AuthRequest, res: Response) => {
 
 // Short aliases used by the Chrome extension
 router.post('/tailor', async (req: AuthRequest, res: Response) => {
-  const { jd } = req.body
+  const { jd, baseResume, jobTitle, company } = req.body
   if (!jd) return res.status(400).json({ success: false, error: 'jd required' })
+  if (!baseResume) return res.status(400).json({ success: false, error: 'baseResume required — make sure your resume is saved in Profile settings' })
   const creds = await getAiCreds(req.userId!, res)
   if (!creds) return
-  const systemPrompt = `You are an expert resume writer. Tailor the user's resume to the job description. Return ONLY the tailored resume text.`
-  const userMessage = `JD:\n${jd}\n\nPlease tailor my resume to this job description.`
+
+  const systemPrompt = `You are a senior resume editor. Your job is surgical: you tailor the candidate's existing resume to a specific job description by editing only two things:
+
+1. OBJECTIVE / SUMMARY section — rewrite it to reflect the JD's priorities and language, while staying true to the candidate's actual experience level and career arc. Do not exaggerate.
+
+2. BULLET POINTS under each work experience — rephrase existing bullets to surface keywords and impact metrics that resonate with the JD. Do NOT invent new responsibilities, tools, or achievements that are not already in the resume. Preserve every factual detail (company, title, dates, numbers like $2M, 30%, 60 implementations).
+
+DO NOT CHANGE:
+- Section headings or their order
+- Company names, job titles, or employment dates
+- Education section
+- Skills section (leave exactly as-is)
+- Any metric or number unless you are making it more precise from the same sentence
+- Contact information
+
+Return ONLY the full tailored resume text, preserving the original formatting and structure exactly.`
+
+  const userMessage = `TARGET ROLE: ${jobTitle || ''} at ${company || ''}
+
+JOB DESCRIPTION:
+${(jd as string).slice(0, 3000)}
+
+CANDIDATE'S RESUME:
+${baseResume}`
+
   try {
     const tailored = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 3000 })
     res.json({ success: true, data: { tailored } })
@@ -148,8 +192,22 @@ ${rawText.slice(0, 14000)}`
     console.log(`[extract-jd] calling ${providerUrl} model=${model} textLen=${rawText.length}`)
     const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 4000 })
     console.log(`[extract-jd] raw response (first 500): ${raw.slice(0, 500)}`)
-    const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
-    const jd = JSON.parse(cleaned)
+    const stripped = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+    const start = stripped.indexOf('{')
+    const end = stripped.lastIndexOf('}')
+    if (start === -1 || end === -1) throw new Error('No JSON in AI response')
+    let jd: Record<string, unknown>
+    try {
+      jd = JSON.parse(stripped.slice(start, end + 1))
+    } catch {
+      // Truncated JSON — salvage what we can by closing open strings/arrays/objects
+      const partial = stripped.slice(start)
+      const salvaged = partial
+        .replace(/,\s*$/, '')           // trailing comma
+        .replace(/"([^"]*?)$/m, '"$1"') // unclosed string → close it
+        + (partial.split('{').length > partial.split('}').length ? '}' : '') // unclosed object
+      jd = JSON.parse(salvaged)
+    }
     console.log(`[extract-jd] parsed JD title="${jd.title}" company="${jd.company}"`)
     jd.url = url || ''
     res.json({ success: true, data: { ...jd, _extractedBy: `${model}` } })
@@ -184,38 +242,66 @@ router.post('/parse-resume', upload.single('resume'), async (req: AuthRequest, r
 
   const usesSarvam = !creds.provider || creds.provider.includes('sarvam.ai')
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
-  const model = usesSarvam ? 'sarvam-m' : creds.model
+  // Use 105b for resume parsing — it's not a reasoning model so output tokens go directly to JSON
+  const model = usesSarvam ? 'sarvam-105b' : creds.model
 
-  const systemPrompt = `You are an expert resume parser with deep understanding of professional career trajectories. Extract structured profile data from resumes with precision — infer years of experience from dates, identify all distinct roles held, and extract every technical skill mentioned. Return ONLY valid JSON, no markdown, no explanation.`
+  const systemPrompt = `You are a resume parser. Extract profile data and return ONLY a valid JSON object — no markdown, no explanation, no preamble.`
 
-  const userMessage = `Parse this resume and extract the candidate's complete professional profile. Return this exact JSON structure:
-{
-  "name": "full legal name as written",
-  "currentTitle": "most recent job title",
-  "currentCompany": "most recent employer",
-  "location": "city and country if present, e.g. Bengaluru, India",
-  "yearsExp": <integer — calculate from earliest work experience date to today>,
-  "summary": "2-3 sentence professional summary capturing their arc — if not in resume, synthesize from their experience",
-  "rolesHeld": ["each distinct job title they have held, deduplicated, most recent first"],
-  "targetRoles": ["2-4 logical next-step roles based on their trajectory"],
-  "skills": ["every technical skill, tool, platform, language, framework — extract exhaustively"],
-  "education": "highest degree and institution, e.g. B.Tech Computer Science, IIT Delhi",
-  "certifications": ["any certifications or courses mentioned"]
-}
+  const userMessage = `Extract from this resume and return JSON only:
+{"name":"","currentTitle":"","currentCompany":"","location":"","yearsExp":0,"summary":"","rolesHeld":[],"targetRoles":[],"skills":[],"education":"","certifications":[]}
 
-Rules:
-- yearsExp: count from the FIRST work experience entry. If only years given (e.g. 2019–2022), use Jan of start year to today.
-- skills: include ALL tools and technologies, not just the "skills" section — scan every bullet point.
-- rolesHeld: include every title from every job, not just current. Deduplicate exact matches.
-- If a field is truly absent from the resume, use "" or [].
+Rules: yearsExp=completed full years since first job (floor, no rounding up). rolesHeld=all titles held (deduped). skills=every tool/tech/framework in the resume. targetRoles=2-3 logical next roles. summary=2 sentences. Use "" or [] if absent.
 
-RESUME TEXT:
-${rawText.slice(0, 15000)}`
+RESUME:
+${rawText.slice(0, 8000)}`
 
   try {
-    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 2000 })
-    const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
-    const parsed = JSON.parse(cleaned)
+    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 4000 })
+    console.log(`[parse-resume] raw response preview: ${raw.slice(0, 300)}`)
+    // Strip markdown fences, grab outermost {...}
+    const stripped = raw.replace(/^```(?:json)?\n?/im, '').replace(/\n?```$/im, '').trim()
+    const start = stripped.indexOf('{')
+    const end = stripped.lastIndexOf('}')
+    if (start === -1 || end === -1) throw new Error(`No JSON object in response. Got: ${raw.slice(0, 200)}`)
+    const parsed = JSON.parse(stripped.slice(start, end + 1))
+    // Extract earliest date from work experience section only — excludes education dates
+    const now = new Date()
+    const MONTHS: Record<string, number> = {
+      jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+      january:1,february:2,march:3,april:4,june:6,july:7,august:8,september:9,october:10,november:11,december:12
+    }
+
+    // Isolate the work experience section (between "WORK EXPERIENCE" and "EDUCATION")
+    const workSectionMatch = rawText.match(/(?:WORK EXPERIENCE|EXPERIENCE)[:\s]*([\s\S]*?)(?:\n\s*EDUCATION|\n\s*CERTIFICATIONS|$)/i)
+    const workSection = workSectionMatch ? workSectionMatch[1] : rawText
+    console.log(`[parse-resume] workSection first 200: ${workSection.slice(0, 200)}`)
+
+    const dates: Date[] = []
+    // "03/2021" or "03-2021"
+    for (const m of workSection.matchAll(/\b(0?[1-9]|1[0-2])[\/\-](20[012]\d|199\d)\b/g)) {
+      dates.push(new Date(parseInt(m[2]), parseInt(m[1]) - 1))
+    }
+    // "Mar 2021" / "March 2021"
+    for (const m of workSection.matchAll(/\b([A-Za-z]{3,9})\s+(20[012]\d|199\d)\b/g)) {
+      const mo = MONTHS[m[1].toLowerCase()]
+      if (mo) dates.push(new Date(parseInt(m[2]), mo - 1))
+    }
+    // Bare year fallback (only if no month+year found)
+    if (!dates.length) {
+      for (const m of workSection.matchAll(/\b(20[012]\d|199\d)\b/g)) {
+        dates.push(new Date(parseInt(m[1]), 0))
+      }
+    }
+
+    const earliest = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : null
+    console.log(`[parse-resume] all dates found: ${dates.map(d => d.toISOString().slice(0,7)).join(', ')}`)
+    console.log(`[parse-resume] earliest: ${earliest?.toISOString().slice(0,7)}`)
+    if (earliest) {
+      const totalMonths = (now.getFullYear() - earliest.getFullYear()) * 12 + (now.getMonth() - earliest.getMonth())
+      parsed.yearsExp = Math.floor(totalMonths / 12 * 10) / 10  // e.g. 5.3
+      console.log(`[parse-resume] totalMonths=${totalMonths} yearsExp=${parsed.yearsExp}`)
+    }
+
     res.json({ success: true, data: { ...parsed, rawText: rawText.slice(0, 50000) } })
   } catch (e) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI extraction failed' })

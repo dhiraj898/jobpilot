@@ -46,9 +46,12 @@ export async function callAI(opts: AICallOptions): Promise<string> {
     console.error(`[callAI] error ${res.status}: ${err.slice(0, 500)}`)
     throw new Error(`AI provider error ${res.status}: ${err.slice(0, 300)}`)
   }
-  const data = await res.json() as { choices: { message: { content: string } }[] }
+  const data = await res.json() as { choices: { finish_reason: string; message: { content: string | null; reasoning_content?: string } }[] }
   console.log(`[callAI] full response: ${JSON.stringify(data).slice(0, 1000)}`)
-  return data.choices[0].message.content
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content || choice?.message?.reasoning_content
+  if (!content) throw new Error(`AI returned empty response (finish_reason=${choice?.finish_reason}). Raw: ${JSON.stringify(data).slice(0, 300)}`)
+  return content
 }
 
 export { SARVAM_URL }

@@ -22,8 +22,8 @@ export const api = {
     req<{ title: string; company: string; description: string; skills: string[]; requirements: string[]; url: string }>(
       'POST', '/ai/extract-jd', { rawText, url }
     ),
-  tailorResume: (jd: string, baseResume: string) =>
-    req<{ tailored: string }>('POST', '/ai/tailor', { jd, baseResume }),
+  tailorResume: (jd: string, baseResume: string, jobTitle?: string, company?: string) =>
+    req<{ tailored: string }>('POST', '/ai/tailor', { jd, baseResume, jobTitle, company }),
   outreach: (jd: string, contacts: unknown[]) =>
     req<{ message: string }>('POST', '/ai/outreach-msg', { jd, contacts }),
 

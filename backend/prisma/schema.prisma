@@ -24,7 +24,7 @@ model Profile {
   currentTitle    String   @default("")
   currentCompany  String   @default("")
   location        String   @default("")
-  yearsExp        Int      @default(0)
+  yearsExp        Float    @default(0)
   summary         String   @default("")
   rolesHeld       String[] @default([])
   targetRoles     String[] @default([])

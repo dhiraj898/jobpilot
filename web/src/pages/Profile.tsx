@@ -7,7 +7,7 @@ interface ProfileData {
   currentTitle: string
   currentCompany: string
   location: string
-  yearsExp: number
+  yearsExp: number  // e.g. 5.3 = 5 years 3 months
   summary: string
   rolesHeld: string[]
   targetRoles: string[]
@@ -233,8 +233,8 @@ export default function Profile() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Years of experience">
-                <input type="number" min={0} max={50} value={profile.yearsExp}
-                  onChange={e => setProfile(p => ({ ...p, yearsExp: parseInt(e.target.value) || 0 }))}
+                <input type="number" min={0} max={50} step={0.1} value={profile.yearsExp}
+                  onChange={e => setProfile(p => ({ ...p, yearsExp: parseFloat(e.target.value) || 0 }))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
               </Field>
               <Field label="Education">

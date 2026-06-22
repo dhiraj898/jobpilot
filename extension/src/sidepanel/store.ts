@@ -13,7 +13,8 @@ interface State {
   jd: JD | null
   contacts: Contact[]
   tailored: string
-  baseResume: string
+  baseResume: string       // fetched from profile automatically
+  profileName: string      // for personalising outreach
   outreachMsg: string
   loading: boolean
   loadingMsg: string
@@ -26,7 +27,7 @@ const state: State = {
   token: localStorage.getItem('jp_token'),
   email: localStorage.getItem('jp_email'),
   activeTab: 'resume',
-  jd: null, contacts: [], tailored: '', baseResume: '', outreachMsg: '',
+  jd: null, contacts: [], tailored: '', baseResume: '', profileName: '', outreachMsg: '',
   loading: false, loadingMsg: '', error: '',
 }
 

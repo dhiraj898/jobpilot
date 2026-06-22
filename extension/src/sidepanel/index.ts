@@ -194,21 +194,29 @@ function renderResume(): HTMLElement {
     divider.append(h('span', '', 'Redraft your CV for this role'))
     wrap.append(divider)
 
-    wrap.append(h('p', 'lbl', 'Paste your current CV / resume'))
-    const resumeEl = ta('Paste your CV here…')
-    resumeEl.rows = 7
-    // Restore from state if previously pasted
-    if (s.baseResume) resumeEl.value = s.baseResume
-    resumeEl.oninput = () => setState({ baseResume: resumeEl.value })
-    wrap.append(resumeEl)
+    if (s.baseResume) {
+      const resumeStatus = h('div', 'resume-status')
+      resumeStatus.append(h('span', 'resume-ok', '✓ Resume loaded from your profile'))
+      const swapBtn = btn('Use different CV', () => {
+        setState({ baseResume: '' }); render()
+      }, 'btn ghost-sm')
+      resumeStatus.append(swapBtn)
+      wrap.append(resumeStatus)
+    } else {
+      wrap.append(h('p', 'lbl', 'Paste your CV / resume'))
+      const resumeEl = ta('Paste your CV here… (or upload it in the dashboard Profile page)')
+      resumeEl.rows = 5
+      resumeEl.oninput = () => setState({ baseResume: resumeEl.value })
+      wrap.append(resumeEl)
+    }
 
     const tailorBtn = btn('Redraft CV with AI →', async () => {
-      const base = resumeEl.value.trim()
-      if (!base) { resumeEl.focus(); resumeEl.placeholder = 'Paste your CV first!'; return }
+      const base = s.baseResume.trim()
+      if (!base) { setState({ error: 'No CV found — upload your resume on the Profile page first.' }); render(); return }
       setState({ loading: true, loadingMsg: 'Redrafting CV for this role…' }); render()
       try {
-        const result = await api.tailorResume(jd.description, base)
-        setState({ tailored: result.tailored, baseResume: base, loading: false, loadingMsg: '' }); render()
+        const result = await api.tailorResume(jd.description, base, jd.title, jd.company)
+        setState({ tailored: result.tailored, loading: false, loadingMsg: '' }); render()
       } catch (e) {
         setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Tailoring failed' }); render()
       }
@@ -319,6 +327,7 @@ function renderLogin(): HTMLElement {
       const data = await api.login(emailEl.value, passEl.value)
       setToken(data.token, emailEl.value)
       render()
+      loadProfile()
     } catch { errEl.textContent = 'Invalid email or password' }
     finally { submitBtn.disabled = false }
   }, 'btn primary full')
@@ -372,10 +381,19 @@ function render() {
   root.append(s.token ? renderMain() : renderLogin())
 }
 
+async function loadProfile() {
+  try {
+    const profile = await api.profile() as { resumeText?: string; name?: string }
+    if (profile.resumeText) setState({ baseResume: profile.resumeText })
+    if (profile.name) setState({ profileName: profile.name })
+  } catch { /* not logged in yet */ }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   root = document.getElementById('root')!
   subscribe(render)
   render()
+  if (getState().token) loadProfile()
 
   // Clear cached JD whenever the active tab URL changes (any SPA navigation = different job)
   let lastTabUrl: string | null = null
