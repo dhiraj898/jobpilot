@@ -1,28 +1,24 @@
-function scrapeJD(): { title: string; company: string; description: string; url: string } {
-  const url = location.href
-  const title = document.querySelector('h1')?.textContent?.trim() || document.title
-  const company = (
-    document.querySelector('[data-company]')?.textContent ||
-    document.querySelector('.company-name')?.textContent ||
-    document.querySelector('[class*="company"]')?.textContent ||
-    ''
-  ).trim()
-  const bodyText = document.body.innerText.slice(0, 8000)
-  return { title, company, description: bodyText, url }
+// Grab everything visible on the page — no selectors, no assumptions
+function scrapeRaw(): { rawText: string; url: string; pageTitle: string } {
+  return {
+    rawText: document.body.innerText.slice(0, 20000),
+    url: location.href,
+    pageTitle: document.title,
+  }
 }
 
-function scrapeContacts(): { name: string; title: string; linkedin: string }[] {
-  const results: { name: string; title: string; linkedin: string }[] = []
+function scrapeContacts(): { name: string; linkedin: string }[] {
+  const results: { name: string; linkedin: string }[] = []
   document.querySelectorAll('a[href*="linkedin.com/in/"]').forEach(el => {
     const href = (el as HTMLAnchorElement).href
     const name = el.textContent?.trim() || ''
-    if (name) results.push({ name, title: '', linkedin: href })
+    if (name && href) results.push({ name, linkedin: href })
   })
   return results
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-  if (msg.type === 'SCRAPE_JD') { reply({ ok: true, data: scrapeJD() }); return true }
+  if (msg.type === 'SCRAPE_RAW') { reply({ ok: true, data: scrapeRaw() }); return true }
   if (msg.type === 'SCRAPE_CONTACTS') { reply({ ok: true, data: scrapeContacts() }); return true }
   if (msg.type === 'AUTOFILL') {
     const fields = msg.data as Record<string, string>
