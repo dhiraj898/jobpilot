@@ -8,7 +8,13 @@
     "lint": "eslint src --ext .ts"
   },
   "vitest": {
-    "environment": "node"
+    "environment": "node",
+    "setupFiles": ["./tests/setup.ts"],
+    "env": {
+      "ENCRYPTION_KEY": "8bb67a7c4bb805c06eec07da1f64fbc37a9a5095e227240a8a74afb76cf86008",
+      "JWT_SECRET": "52ca59b1fff1ab65b8d1f20b52e2b7d3f7822796cff0f5e6b7d2264283172ded",
+      "DATABASE_URL": "postgresql://postgres:Jain%40898@localhost:6000/jobpilot"
+    }
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

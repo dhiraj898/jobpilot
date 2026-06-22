@@ -19,7 +19,7 @@ model User {
 model Profile {
   id              String   @id @default(cuid())
   userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String   @default("")
   currentTitle    String   @default("")
   yearsExp        Int      @default(0)
@@ -37,7 +37,7 @@ model Profile {
 model Application {
   id             String   @id @default(cuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   company        String
   role           String
   source         String
