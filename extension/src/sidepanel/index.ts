@@ -55,13 +55,25 @@ function renderLogin(): HTMLElement {
 
 async function scrapeCurrentTab(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab.id) return
+  if (!tab.id) { setState({ error: 'No active tab found' }); return }
+
+  // Inject content script if not yet present (handles tabs opened before extension was loaded)
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
+  } catch { /* already injected or restricted page — continue */ }
+
+  await new Promise(r => setTimeout(r, 200))
+
   try {
     const res = await chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_JD' }) as { ok: boolean; data: { title: string; company: string; description: string; url: string } }
-    if (res.ok) setState({ jd: res.data })
+    if (res?.ok) setState({ jd: res.data, error: '' })
+    else setState({ error: 'Could not scrape JD from this page' })
+
     const contacts = await chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_CONTACTS' }) as { ok: boolean; data: { name: string; title: string; linkedin: string }[] }
-    if (contacts.ok) setState({ contacts: contacts.data })
-  } catch { /* tab may not have content script */ }
+    if (contacts?.ok) setState({ contacts: contacts.data })
+  } catch (e) {
+    setState({ error: `Scrape failed: ${e instanceof Error ? e.message : 'content script not reachable'}` })
+  }
 }
 
 function renderResume(): HTMLElement {
@@ -69,12 +81,14 @@ function renderResume(): HTMLElement {
   const wrap = h('div', { className: 'tab-content' })
   const jdSection = h('div', { className: 'section' })
   const scrapeBtn = btn('Scrape JD from page', async () => {
-    setState({ loading: true })
+    setState({ loading: true, error: '' })
     await scrapeCurrentTab()
     setState({ loading: false })
     render()
   })
+  const errMsg = s.error ? h('p', { className: 'err' }, s.error) : null
   jdSection.append(h('h3', {}, 'Job description'), scrapeBtn)
+  if (errMsg) jdSection.append(errMsg)
   if (s.jd) {
     jdSection.append(h('p', { className: 'meta' }, `${s.jd.title} @ ${s.jd.company}`))
   }
