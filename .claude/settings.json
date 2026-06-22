@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/usr/local/bin/npm *)",
+      "Bash(/usr/local/bin/node *)",
+      "Bash(/Library/PostgreSQL/18/bin/*)",
+      "Bash(PGPASSWORD=* *)",
+      "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(find *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(chmod *)",
+      "Bash(touch *)",
+      "Bash(openssl *)",
+      "Bash(sudo *)",
+      "Bash(ps *)",
+      "Bash(grep *)",
+      "Bash(export *)",
+      "Bash(which *)",
+      "Bash(brew *)"
+    ]
+  }
+}

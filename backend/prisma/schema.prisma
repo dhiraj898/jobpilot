@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  createdAt     DateTime @default(now())
+  profile       Profile?
+  applications  Application[]
+}
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  name            String   @default("")
+  currentTitle    String   @default("")
+  yearsExp        Int      @default(0)
+  targetRoles     String[] @default([])
+  skills          String[] @default([])
+  locations       String[] @default([])
+  resumeText      String   @default("")
+  resumeFileName  String   @default("")
+  aiProvider      String   @default("")
+  aiModel         String   @default("")
+  aiKeyEncrypted  String   @default("")
+  updatedAt       DateTime @updatedAt
+}
+
+model Application {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  company        String
+  role           String
+  source         String
+  status         String   @default("applied")
+  url            String   @default("")
+  tailoredResume String   @default("")
+  notes          String   @default("")
+  appliedAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
