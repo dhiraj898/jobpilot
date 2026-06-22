@@ -105,4 +105,34 @@ router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Extract structured JD from raw page text — used by Chrome extension
+router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
+  const { rawText, url } = req.body
+  if (!rawText) return res.status(400).json({ success: false, error: 'rawText required' })
+  const creds = await getAiCreds(req.userId!, res)
+  if (!creds) return
+  const systemPrompt = `You extract job posting information from raw webpage text. Return ONLY valid JSON, no markdown, no explanation.`
+  const userMessage = `Extract the job details from this webpage text. Return JSON with exactly these fields:
+{
+  "title": "job title",
+  "company": "company name",
+  "description": "full job description text, preserve all details",
+  "skills": ["skill1", "skill2"],
+  "requirements": ["requirement1", "requirement2"]
+}
+If a field is not found, use empty string or empty array.
+
+PAGE TEXT:
+${rawText.slice(0, 15000)}`
+  try {
+    const raw = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 2000 })
+    const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+    const jd = JSON.parse(cleaned)
+    jd.url = url || ''
+    res.json({ success: true, data: jd })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI extraction failed' })
+  }
+})
+
 export default router
