@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import Layout from '../components/Layout'
+import AppShell from '../components/AppShell'
 import { api } from '../api/client'
 
 interface Application { id: string; role: string; company: string; status: string; source: string; appliedAt: string; notes: string; url: string }
@@ -31,7 +31,7 @@ export default function Applications() {
   }
 
   return (
-    <Layout>
+    <AppShell>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-medium text-gray-900">Applications</h1>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -80,6 +80,6 @@ export default function Applications() {
           </tbody>
         </table>
       </div>
-    </Layout>
+    </AppShell>
   )
 }

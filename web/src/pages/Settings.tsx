@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import Layout from '../components/Layout'
+import AppShell from '../components/AppShell'
 import { api } from '../api/client'
 
 const PROVIDERS = [
@@ -107,7 +107,7 @@ export default function Settings() {
   }
 
   return (
-    <Layout>
+    <AppShell>
       <div className="max-w-2xl">
         <h1 className="text-xl font-medium text-gray-900 mb-6">Settings</h1>
         <div className="bg-white rounded-xl border border-gray-100 p-6">
@@ -181,6 +181,6 @@ export default function Settings() {
           </button>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   )
 }

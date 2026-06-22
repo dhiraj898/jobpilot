@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import Layout from '../components/Layout'
+import AppShell from '../components/AppShell'
 import { api } from '../api/client'
 
 interface ProfileData {
@@ -146,7 +146,7 @@ export default function Profile() {
   // ── Upload phase ─────────────────────────────────────────────────────────────
   if (phase === 'upload') {
     return (
-      <Layout>
+      <AppShell>
         <div className="max-w-xl">
           <h1 className="text-xl font-medium text-gray-900 mb-1">Profile</h1>
           <p className="text-sm text-gray-500 mb-8">Upload your resume and we'll auto-fill your profile using AI.</p>
@@ -178,26 +178,26 @@ export default function Profile() {
             Skip and fill in manually →
           </button>
         </div>
-      </Layout>
+      </AppShell>
     )
   }
 
   // ── Parsing phase ─────────────────────────────────────────────────────────────
   if (phase === 'parsing') {
     return (
-      <Layout>
+      <AppShell>
         <div className="max-w-xl flex flex-col items-center justify-center py-24 text-center">
           <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6" />
           <p className="text-base font-medium text-gray-700 mb-1">{parseMsg}</p>
           <p className="text-sm text-gray-400">This takes a few seconds</p>
         </div>
-      </Layout>
+      </AppShell>
     )
   }
 
   // ── Edit phase ────────────────────────────────────────────────────────────────
   return (
-    <Layout>
+    <AppShell>
       <div className="max-w-2xl">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -290,6 +290,6 @@ export default function Profile() {
           {saved && <p className="text-sm text-green-600">Profile saved successfully.</p>}
         </div>
       </div>
-    </Layout>
+    </AppShell>
   )
 }
