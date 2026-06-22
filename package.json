@@ -1,0 +1,11 @@
+{
+  "name": "jobpilot",
+  "private": true,
+  "workspaces": ["backend", "web", "extension"],
+  "scripts": {
+    "dev:backend": "npm --workspace=backend run dev",
+    "dev:web": "npm --workspace=web run dev",
+    "test:backend": "npm --workspace=backend test",
+    "test:web": "npm --workspace=web test"
+  }
+}
