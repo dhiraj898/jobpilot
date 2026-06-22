@@ -20,11 +20,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.put('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, currentTitle, yearsExp, targetRoles, skills, locations,
+    const { name, currentTitle, currentCompany, location, yearsExp, summary,
+            rolesHeld, targetRoles, skills, locations, education, certifications,
             resumeText, resumeFileName, aiProvider, aiModel, aiKey } = req.body
 
     const updateData: Record<string, unknown> = {
-      name, currentTitle, yearsExp, targetRoles, skills, locations,
+      name, currentTitle, currentCompany, location, yearsExp, summary,
+      rolesHeld, targetRoles, skills, locations, education, certifications,
       resumeText, resumeFileName, aiProvider, aiModel
     }
     if (aiKey) updateData.aiKeyEncrypted = encrypt(aiKey)

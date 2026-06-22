@@ -27,40 +27,102 @@ function btn(label: string, onClick: () => void, cls = 'btn'): HTMLButtonElement
 }
 
 // ── Content script bridge ─────────────────────────────────────────────────────
-async function getActiveTabId(): Promise<number | null> {
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  return tab?.id ?? null
+  return tab ?? null
 }
-async function ensureContentScript(tabId: number): Promise<void> {
-  try { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }) } catch { /* already injected */ }
-  await new Promise(r => setTimeout(r, 150))
+
+// Synchronous scrape — called repeatedly from sidepanel until content is ready
+function pageScrapeOnce(): { rawText: string; url: string; ready: boolean } {
+  const desc =
+    (document.querySelector('.jobs-description__content') as HTMLElement | null) ||
+    (document.querySelector('.jobs-description-content__text') as HTMLElement | null)
+
+  const descText = desc ? (desc.innerText || desc.textContent || '').trim() : ''
+
+  if (descText.length > 80) {
+    const titleEl =
+      document.querySelector('.job-details-jobs-unified-top-card__job-title') ||
+      document.querySelector('[class*="job-details"] h1') ||
+      document.querySelector('.jobs-unified-top-card__job-title')
+    const header =
+      document.querySelector('.job-details-jobs-unified-top-card__primary-description-without-tagline') ||
+      document.querySelector('.jobs-unified-top-card__primary-description')
+
+    const parts: string[] = []
+    if (titleEl) parts.push('JOB TITLE: ' + (titleEl.textContent || '').trim())
+    if (header) parts.push((header.textContent || '').trim())
+    parts.push('JOB DESCRIPTION:\n' + descText)
+    return { rawText: parts.join('\n\n').slice(0, 20000), url: location.href, ready: true }
+  }
+
+  // Fallback: right-panel clone stripped of sidebar
+  const panel =
+    (document.querySelector('.jobs-details') as HTMLElement | null) ||
+    (document.querySelector('.scaffold-layout__detail') as HTMLElement | null)
+  if (panel) {
+    const clone = panel.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('.jobs-search-results-list, .scaffold-layout__list').forEach(el => el.remove())
+    const text = clone.innerText.trim()
+    if (text.length > 80) return { rawText: text.slice(0, 20000), url: location.href, ready: true }
+  }
+
+  return { rawText: '', url: location.href, ready: false }
+}
+
+function pageContactScraper(): { name: string; linkedin: string }[] {
+  const results: { name: string; linkedin: string }[] = []
+  document.querySelectorAll('a[href*="linkedin.com/in/"]').forEach(el => {
+    const href = (el as HTMLAnchorElement).href
+    const name = el.textContent?.trim() || ''
+    if (name && href) results.push({ name, linkedin: href })
+  })
+  return results
 }
 
 // ── Scrape + AI extract (via backend / DB key) ────────────────────────────────
 async function scrapeAndExtract(): Promise<void> {
-  const tabId = await getActiveTabId()
-  if (!tabId) { setState({ error: 'No active tab', loading: false }); return }
+  const tab = await getActiveTab()
+  if (!tab?.id) { setState({ error: 'No active tab', loading: false }); return }
+  const tabId = tab.id
 
-  await ensureContentScript(tabId)
+  // Poll until the job description is in the DOM (up to 8s)
+  let raw: { rawText: string; url: string } = { rawText: '', url: '' }
+  const deadline = Date.now() + 8000
+  while (true) {
+    setState({ loadingMsg: 'Reading page… (waiting for job to load)' })
+    try {
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: pageScrapeOnce,
+        world: 'MAIN',
+      })
+      const snap = result?.result as { rawText: string; url: string; ready: boolean } | null
+      if (!snap) {
+        setState({ error: `executeScript returned null — result: ${JSON.stringify(result)}`, loading: false, loadingMsg: '' })
+        return
+      }
+      if (snap.ready) { raw = snap; break }
+      if (Date.now() >= deadline) { raw = snap; break }
+      await new Promise(r => setTimeout(r, 400))
+    } catch (e) {
+      setState({ error: `Could not read page: ${e instanceof Error ? e.message : 'unknown'}`, loading: false, loadingMsg: '' })
+      return
+    }
+  }
 
-  setState({ loadingMsg: 'Reading page… (waiting for job to load)' })
-  let raw: { rawText: string; url: string; pageTitle: string }
-  try {
-    const res = await chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_RAW' }) as { ok: boolean; data: typeof raw }
-    if (!res?.ok) throw new Error('Content script did not respond')
-    raw = res.data
-  } catch (e) {
-    setState({ error: `Could not read page: ${e instanceof Error ? e.message : 'unknown'}`, loading: false, loadingMsg: '' })
+  if (!raw.rawText || raw.rawText.length < 80) {
+    setState({ error: 'Could not read job content — scroll the job description into view and try again.', loading: false, loadingMsg: '' })
     return
   }
 
   setState({ loadingMsg: `AI extracting… (${raw.rawText.length} chars read)` })
   try {
     const jd = await api.extractJD(raw.rawText, raw.url)
-    if (!jd.title && !jd.description) throw new Error(`No job info found (${raw.rawText.length} chars scraped — try scrolling the job into view first)`)
+    if (!jd.title && !jd.description) throw new Error(`No job info found — try scrolling the job description into view first`)
 
-    const cRes = await chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_CONTACTS' }) as { ok: boolean; data: { name: string; linkedin: string }[] }
-    setState({ jd, contacts: cRes?.ok ? cRes.data : [], error: '', loading: false, loadingMsg: '' })
+    const [cResult] = await chrome.scripting.executeScript({ target: { tabId }, func: pageContactScraper, world: 'MAIN' })
+    setState({ jd, contacts: cResult?.result ?? [], error: '', loading: false, loadingMsg: '' })
     render()
   } catch (e) {
     setState({ error: `AI extraction failed: ${e instanceof Error ? e.message : 'unknown'}`, loading: false, loadingMsg: '' })
@@ -315,20 +377,14 @@ document.addEventListener('DOMContentLoaded', () => {
   subscribe(render)
   render()
 
-  // Clear cached JD when the active tab navigates to a different job URL
-  let lastJobId: string | null = null
-
-  function jobIdFromUrl(url: string): string | null {
-    const m = url.match(/currentJobId=(\d+)/)
-    return m ? m[1] : null
-  }
+  // Clear cached JD whenever the active tab URL changes (any SPA navigation = different job)
+  let lastTabUrl: string | null = null
 
   async function checkTabUrl() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.url) return
-    const jobId = jobIdFromUrl(tab.url)
-    if (jobId && jobId !== lastJobId) {
-      lastJobId = jobId
+    if (tab.url !== lastTabUrl) {
+      lastTabUrl = tab.url
       if (getState().jd) {
         setState({ jd: null, tailored: '', contacts: [], error: '', outreachMsg: '' })
         render()
@@ -336,9 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  checkTabUrl() // seed lastJobId on open so stale JD is cleared immediately
+  checkTabUrl()
   chrome.tabs.onActivated.addListener(() => checkTabUrl())
-  chrome.tabs.onUpdated.addListener((_id, info) => {
-    if (info.url) checkTabUrl()
-  })
+  chrome.tabs.onUpdated.addListener((_tabId, info) => { if (info.url) checkTabUrl() })
 })

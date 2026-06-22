@@ -1,7 +1,13 @@
 import { Router, Response } from 'express'
+import multer from 'multer'
+import pdfParseLib from 'pdf-parse'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (pdfParseLib as any).default ?? pdfParseLib
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { getDecryptedKey } from './profile'
 import { callAI, SARVAM_URL } from '../services/aiProxy'
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 const router = Router()
 router.use(requireAuth)
@@ -148,6 +154,70 @@ ${rawText.slice(0, 14000)}`
     jd.url = url || ''
     res.json({ success: true, data: { ...jd, _extractedBy: `${model}` } })
   } catch (e: unknown) {
+    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI extraction failed' })
+  }
+})
+
+// ── Resume OCR + profile extraction ──────────────────────────────────────────
+router.post('/parse-resume', upload.single('resume'), async (req: AuthRequest, res: Response) => {
+  if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' })
+
+  const creds = await getAiCreds(req.userId!, res)
+  if (!creds) return
+
+  // Extract raw text from PDF or plain text file
+  let rawText = ''
+  try {
+    if (req.file.mimetype === 'application/pdf' || req.file.originalname.endsWith('.pdf')) {
+      const parsed = await pdfParse(req.file.buffer)
+      rawText = parsed.text
+    } else {
+      rawText = req.file.buffer.toString('utf-8')
+    }
+  } catch (e) {
+    return res.status(422).json({ success: false, error: 'Could not read file — ensure it is a valid PDF or text file' })
+  }
+
+  if (!rawText || rawText.trim().length < 50) {
+    return res.status(422).json({ success: false, error: 'File appears empty or unreadable' })
+  }
+
+  const usesSarvam = !creds.provider || creds.provider.includes('sarvam.ai')
+  const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
+  const model = usesSarvam ? 'sarvam-m' : creds.model
+
+  const systemPrompt = `You are an expert resume parser with deep understanding of professional career trajectories. Extract structured profile data from resumes with precision — infer years of experience from dates, identify all distinct roles held, and extract every technical skill mentioned. Return ONLY valid JSON, no markdown, no explanation.`
+
+  const userMessage = `Parse this resume and extract the candidate's complete professional profile. Return this exact JSON structure:
+{
+  "name": "full legal name as written",
+  "currentTitle": "most recent job title",
+  "currentCompany": "most recent employer",
+  "location": "city and country if present, e.g. Bengaluru, India",
+  "yearsExp": <integer — calculate from earliest work experience date to today>,
+  "summary": "2-3 sentence professional summary capturing their arc — if not in resume, synthesize from their experience",
+  "rolesHeld": ["each distinct job title they have held, deduplicated, most recent first"],
+  "targetRoles": ["2-4 logical next-step roles based on their trajectory"],
+  "skills": ["every technical skill, tool, platform, language, framework — extract exhaustively"],
+  "education": "highest degree and institution, e.g. B.Tech Computer Science, IIT Delhi",
+  "certifications": ["any certifications or courses mentioned"]
+}
+
+Rules:
+- yearsExp: count from the FIRST work experience entry. If only years given (e.g. 2019–2022), use Jan of start year to today.
+- skills: include ALL tools and technologies, not just the "skills" section — scan every bullet point.
+- rolesHeld: include every title from every job, not just current. Deduplicate exact matches.
+- If a field is truly absent from the resume, use "" or [].
+
+RESUME TEXT:
+${rawText.slice(0, 15000)}`
+
+  try {
+    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 2000 })
+    const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+    const parsed = JSON.parse(cleaned)
+    res.json({ success: true, data: { ...parsed, rawText: rawText.slice(0, 50000) } })
+  } catch (e) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI extraction failed' })
   }
 })
