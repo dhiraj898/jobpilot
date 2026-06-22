@@ -54,10 +54,10 @@ async function scrapeAndExtract(): Promise<void> {
     return
   }
 
-  setState({ loadingMsg: 'AI is extracting job details…' })
+  setState({ loadingMsg: `AI extracting… (${raw.rawText.length} chars read)` })
   try {
     const jd = await api.extractJD(raw.rawText, raw.url)
-    if (!jd.title && !jd.description) throw new Error('No job info found on this page')
+    if (!jd.title && !jd.description) throw new Error(`No job info found (${raw.rawText.length} chars scraped — try scrolling the job into view first)`)
 
     const cRes = await chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_CONTACTS' }) as { ok: boolean; data: { name: string; linkedin: string }[] }
     setState({ jd, contacts: cRes?.ok ? cRes.data : [], error: '', loading: false, loadingMsg: '' })
