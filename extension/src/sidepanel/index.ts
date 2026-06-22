@@ -73,67 +73,147 @@ async function scrapeAndExtract(): Promise<void> {
 }
 
 // ── Panels ────────────────────────────────────────────────────────────────────
+const PROVIDERS = [
+  {
+    label: 'Anthropic',
+    url: 'https://api.anthropic.com/v1',
+    hint: 'sk-ant-…',
+    models: [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fastest)' },
+    ],
+  },
+  {
+    label: 'OpenAI',
+    url: 'https://api.openai.com/v1',
+    hint: 'sk-…',
+    models: [
+      { id: 'gpt-4o', label: 'GPT-4o (recommended)' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini (fast & cheap)' },
+      { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+      { id: 'o1-mini', label: 'o1 Mini (reasoning)' },
+    ],
+  },
+  {
+    label: 'Sarvam AI',
+    url: 'https://api.sarvam.ai/v1',
+    hint: 'your-sarvam-api-key',
+    models: [
+      { id: 'sarvam-m', label: 'Sarvam-M (flagship, multilingual)' },
+      { id: 'sarvam-2b', label: 'Sarvam-2B (lightweight)' },
+    ],
+  },
+  {
+    label: 'OpenRouter',
+    url: 'https://openrouter.ai/api/v1',
+    hint: 'sk-or-…',
+    models: [
+      { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' },
+      { id: 'mistralai/mistral-large', label: 'Mistral Large' },
+      { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
+      { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+    ],
+  },
+  {
+    label: 'Groq',
+    url: 'https://api.groq.com/openai/v1',
+    hint: 'gsk_…',
+    models: [
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (fast)' },
+      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (instant)' },
+      { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+      { id: 'gemma2-9b-it', label: 'Gemma 2 9B' },
+    ],
+  },
+]
+
 function renderSettings(): HTMLElement {
   const s = getState()
   const wrap = h('div', 'tab-content')
   wrap.append(h('h3', 'section-title', 'AI Provider'))
-
-  const PROVIDERS = [
-    { label: 'Anthropic', url: 'https://api.anthropic.com/v1', hint: 'sk-ant-…' },
-    { label: 'OpenAI', url: 'https://api.openai.com/v1', hint: 'sk-…' },
-    { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', hint: 'sk-or-…' },
-  ]
+  wrap.append(h('p', 'sub', 'Key stored in chrome.storage.sync — only sent to your chosen provider.'))
 
   const current = s.aiConfig
   let selectedProvider = PROVIDERS.find(p => p.url === current?.provider) ?? PROVIDERS[0]
+  let selectedModel = current?.model ?? selectedProvider.models[0].id
 
-  // Provider pills
-  const pillRow = h('div', 'pill-row')
-  const pills: HTMLButtonElement[] = []
+  // Provider cards (2-column grid)
+  const providerGrid = h('div', 'provider-grid')
+  const cards: HTMLButtonElement[] = []
+
+  function updateModelList() {
+    modelList.innerHTML = ''
+    selectedProvider.models.forEach(m => {
+      const opt = document.createElement('option')
+      opt.value = m.id
+      opt.textContent = m.label
+      if (m.id === selectedModel) opt.selected = true
+      modelList.append(opt)
+    })
+    keyEl.placeholder = selectedProvider.hint
+  }
+
+  // Model selector (select element, populated dynamically)
+  const modelList = document.createElement('select')
+  modelList.className = 'model-select'
+  modelList.onchange = () => { selectedModel = modelList.value }
+
   PROVIDERS.forEach(p => {
-    const pill = btn(p.label, () => {
+    const card = btn(p.label, () => {
       selectedProvider = p
-      pills.forEach((b, i) => b.className = PROVIDERS[i].url === p.url ? 'pill active' : 'pill')
-      modelEl.placeholder = p.url.includes('anthropic') ? 'claude-sonnet-4-6' : 'gpt-4o'
-      keyEl.placeholder = p.hint
-    }, selectedProvider.url === p.url ? 'pill active' : 'pill')
-    pills.push(pill)
-    pillRow.append(pill)
+      selectedModel = p.models[0].id
+      cards.forEach(c => c.className = c.dataset.url === p.url ? 'provider-card active' : 'provider-card')
+      updateModelList()
+    }, selectedProvider.url === p.url ? 'provider-card active' : 'provider-card')
+    card.dataset.url = p.url
+    cards.push(card)
+    providerGrid.append(card)
   })
+
+  updateModelList()
 
   const keyEl = inp('password', selectedProvider.hint, '')
   keyEl.autocomplete = 'off'
-  const modelEl = inp('text', 'claude-sonnet-4-6', current?.model ?? 'claude-sonnet-4-6')
-  const statusEl = h('p', current ? 'status ok' : 'status', current ? '✓ API key saved' : 'No key saved yet')
+
+  const statusEl = h('p', current ? 'status ok' : 'status',
+    current ? `✓ ${PROVIDERS.find(p => p.url === current.provider)?.label ?? 'Provider'} · ${current.model}` : 'No key saved yet')
   const errEl = h('p', 'err')
 
-  const saveBtn = btn('Save & test', async () => {
+  const saveBtn = btn('Save & test connection', async () => {
     const key = keyEl.value.trim() || current?.apiKey || ''
     if (!key) { errEl.textContent = 'Enter an API key'; return }
     saveBtn.textContent = 'Testing…'; saveBtn.disabled = true; errEl.textContent = ''
-    const config: AIConfig = { apiKey: key, provider: selectedProvider.url, model: modelEl.value.trim() || 'claude-sonnet-4-6' }
+    const model = modelList.value || selectedModel
+    const config: AIConfig = { apiKey: key, provider: selectedProvider.url, model }
     try {
-      // Quick test call
-      await fetch(`${config.provider.replace(/\/$/, '')}/chat/completions`, {
+      const res = await fetch(`${config.provider.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: config.model, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
       })
+      // 4xx from provider = key rejected; anything else = network ok
+      if (res.status === 401 || res.status === 403) throw new Error('Invalid API key')
       await saveAIConfig(config)
-      statusEl.textContent = '✓ API key saved & working'; statusEl.className = 'status ok'
+      statusEl.textContent = `✓ ${selectedProvider.label} · ${model}`
+      statusEl.className = 'status ok'
       keyEl.value = ''
     } catch (e) {
       errEl.textContent = e instanceof Error ? e.message : 'Test failed'
-    } finally { saveBtn.textContent = 'Save & test'; saveBtn.disabled = false }
-  }, 'btn primary')
+    } finally { saveBtn.textContent = 'Save & test connection'; saveBtn.disabled = false }
+  }, 'btn primary full')
 
   wrap.append(
-    h('p', 'sub', 'Your key is stored in chrome.storage.sync — never sent to any server except your chosen provider.'),
-    pillRow,
+    providerGrid,
+    h('label', 'lbl', 'Model'),
+    modelList,
     h('label', 'lbl', 'API Key'),
     keyEl,
-    h('label', 'lbl', 'Model'),
-    modelEl,
     statusEl,
     errEl,
     saveBtn,
