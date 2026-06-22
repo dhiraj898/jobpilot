@@ -29,7 +29,7 @@ const PROVIDERS = [
     url: 'https://api.sarvam.ai/v1',
     placeholder: 'your-sarvam-api-key',
     models: [
-      { id: 'sarvam-m', label: 'Sarvam-M (flagship, multilingual)' },
+      { id: 'sarvam-m', label: 'Sarvam-M 30B — used for JD extraction ★' },
       { id: 'sarvam-2b', label: 'Sarvam-2B (lightweight)' },
     ],
   },
@@ -112,8 +112,11 @@ export default function Settings() {
         <h1 className="text-xl font-medium text-gray-900 mb-6">Settings</h1>
         <div className="bg-white rounded-xl border border-gray-100 p-6">
           <h2 className="text-sm font-medium text-gray-900 mb-1">AI provider</h2>
-          <p className="text-xs text-gray-500 mb-5">
+          <p className="text-xs text-gray-500 mb-2">
             JobPilot uses your own API key — stored AES-256 encrypted in the database, never logged or shared.
+          </p>
+          <p className="text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2 mb-4">
+            ★ <strong>Sarvam AI (Sarvam-M 30B)</strong> is used automatically for JD extraction from job pages. Configure it below to enable that feature.
           </p>
 
           {/* Provider grid */}

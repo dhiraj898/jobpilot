@@ -105,12 +105,21 @@ router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Extract structured JD from raw page text — used by Chrome extension
+const SARVAM_URL = 'https://api.sarvam.ai/v1'
+const SARVAM_MODEL = 'sarvam-m'  // Sarvam-M is the 30B model
+
+// Extract structured JD from raw page text — uses Sarvam-M (30B) if configured, else falls back to user's provider
 router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
   const { rawText, url } = req.body
   if (!rawText) return res.status(400).json({ success: false, error: 'rawText required' })
   const creds = await getAiCreds(req.userId!, res)
   if (!creds) return
+
+  // Prefer Sarvam-M (30B) for extraction — best at structured information extraction from noisy page text
+  const usesSarvam = creds.provider === SARVAM_URL
+  const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
+  const model = usesSarvam ? SARVAM_MODEL : creds.model
+
   const systemPrompt = `You extract job posting information from raw webpage text. Return ONLY valid JSON, no markdown, no explanation.`
   const userMessage = `Extract the job details from this webpage text. Return JSON with exactly these fields:
 {
@@ -124,12 +133,13 @@ If a field is not found, use empty string or empty array.
 
 PAGE TEXT:
 ${rawText.slice(0, 15000)}`
+
   try {
-    const raw = await callAI({ apiKey: creds.key, providerUrl: creds.provider, model: creds.model, systemPrompt, userMessage, maxTokens: 2000 })
+    const raw = await callAI({ apiKey: creds.key, providerUrl, model, systemPrompt, userMessage, maxTokens: 2000 })
     const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
     const jd = JSON.parse(cleaned)
     jd.url = url || ''
-    res.json({ success: true, data: jd })
+    res.json({ success: true, data: { ...jd, _extractedBy: `${model}` } })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'AI extraction failed' })
   }
