@@ -136,7 +136,7 @@ function renderResume(): HTMLElement {
 
   // ── Step 1: Scrape ──────────────────────────────────────────────────────────
   const scrapeBtn = btn('⟳ Scrape & extract JD with AI', async () => {
-    setState({ loading: true, error: '', jd: null, tailored: '', loadingMsg: '' })
+    setState({ loading: true, error: '', jd: null, tailored: '', tailoredPayload: null, scoreBefore: null, scoreAfter: null, delta: null, changeLog: [], loadingMsg: '' })
     render()
     await scrapeAndExtract()
   }, 'btn primary full')
@@ -210,13 +210,26 @@ function renderResume(): HTMLElement {
       wrap.append(resumeEl)
     }
 
-    const tailorBtn = btn('Redraft CV with AI →', async () => {
+    const isTailored = !!s.tailored
+    const tailorLabel = isTailored ? '↺ Re-tailor for this role' : 'Redraft CV with AI →'
+    const tailorBtn = btn(tailorLabel, async () => {
       const base = s.baseResume.trim()
       if (!base) { setState({ error: 'No CV found — upload your resume on the Profile page first.' }); render(); return }
-      setState({ loading: true, loadingMsg: 'Redrafting CV for this role…' }); render()
+      setState({ loading: true, loadingMsg: 'Scoring your resume against this JD…' }); render()
       try {
-        const result = await api.tailorResume(jd.description, base, jd.title, jd.company)
-        setState({ tailored: result.tailored, loading: false, loadingMsg: '' }); render()
+        const result = await api.tailorResume(
+          jd.description, base, jd.title, jd.company,
+          s.tailoredPayload // pass previous payload on re-tailor
+        )
+        setState({
+          tailored: result.tailoredResume || result.tailored,
+          tailoredPayload: result.tailoredPayload,
+          scoreBefore: result.scoreBefore,
+          scoreAfter: result.scoreAfter,
+          delta: result.delta,
+          changeLog: result.changeLog,
+          loading: false, loadingMsg: '',
+        }); render()
       } catch (e) {
         setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Tailoring failed' }); render()
       }
@@ -225,22 +238,87 @@ function renderResume(): HTMLElement {
   }
 
   // ── Step 4: Tailored output ──────────────────────────────────────────────────
-  if (s.tailored) {
+  if (s.tailored && s.scoreBefore && s.scoreAfter) {
     const divider2 = h('div', 'section-divider success')
-    divider2.append(h('span', '', '✓ Redrafted CV'))
+    divider2.append(h('span', '', '✓ CV Tailored'))
     wrap.append(divider2)
 
-    const out = ta('', s.tailored)
-    out.rows = 12
-    out.readOnly = true
-    wrap.append(out)
+    // ── Score card ──────────────────────────────────────────────────────────
+    const card = h('div', 'score-card')
 
-    const actions = h('div', 'row')
-    const copyBtn = btn('Copy to clipboard', () => {
+    function scoreRow(label: string, score: number, highlight: boolean) {
+      const row = h('div', 'score-row')
+      row.append(h('span', 'score-label', label))
+      const track = h('div', 'score-bar-track')
+      const fill = h('div', highlight ? 'score-bar-fill after' : 'score-bar-fill')
+      fill.style.width = `${score}%`
+      track.append(fill)
+      row.append(track)
+      row.append(h('span', highlight ? 'score-num after' : 'score-num', `${score}%`))
+      return row
+    }
+
+    card.append(scoreRow('Before', s.scoreBefore.score, false))
+    card.append(scoreRow('After', s.scoreAfter.score, true))
+
+    const delta = s.delta ?? 0
+    if (delta !== 0) {
+      card.append(h('div', delta > 0 ? 'score-delta positive' : 'score-delta negative',
+        `${delta > 0 ? '+' : ''}${delta}% match improvement`))
+    }
+
+    // Keywords added
+    const added = s.scoreAfter.matchedKeywords.filter(k => !s.scoreBefore!.matchedKeywords.includes(k))
+    if (added.length) {
+      const kw = h('div', 'kw-section')
+      kw.append(h('span', 'kw-label', 'Keywords added:'))
+      const tags = h('div', 'tags')
+      added.slice(0, 8).forEach(k => tags.append(h('span', 'tag kw-added', k)))
+      kw.append(tags)
+      card.append(kw)
+    }
+
+    if (s.scoreAfter.missingKeywords.length) {
+      const miss = h('div', 'kw-section')
+      miss.append(h('span', 'kw-label missing', 'Still missing:'))
+      const tags = h('div', 'tags')
+      s.scoreAfter.missingKeywords.slice(0, 5).forEach(k => tags.append(h('span', 'tag kw-missing', k)))
+      miss.append(tags)
+      card.append(miss)
+    }
+
+    if (s.changeLog?.length) {
+      const log = h('div', 'change-log')
+      s.changeLog.forEach(entry => log.append(h('div', 'change-entry', `· ${entry}`)))
+      card.append(log)
+    }
+
+    wrap.append(card)
+
+    // ── Actions ─────────────────────────────────────────────────────────────
+    const dlBtn = btn('⬇ Download .docx', async () => {
+      dlBtn.textContent = 'Generating…'
+      ;(dlBtn as HTMLButtonElement).disabled = true
+      try {
+        const role = s.jd?.title || 'resume'
+        const co = s.jd?.company || ''
+        const filename = `${role}${co ? '-' + co : ''}-tailored`.replace(/\s+/g, '-').toLowerCase()
+        await api.downloadResume(s.tailored, filename, s.tailoredPayload)
+        dlBtn.textContent = '✓ Downloaded'
+        setTimeout(() => { dlBtn.textContent = '⬇ Download .docx'; (dlBtn as HTMLButtonElement).disabled = false }, 3000)
+      } catch {
+        dlBtn.textContent = '⬇ Download .docx'
+        ;(dlBtn as HTMLButtonElement).disabled = false
+        setState({ error: 'Could not generate document — try again' }); render()
+      }
+    }, 'btn primary full')
+
+    const secondRow = h('div', 'row')
+    const copyBtn = btn('Copy text', () => {
       navigator.clipboard.writeText(s.tailored)
       copyBtn.textContent = 'Copied!'
-      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard' }, 2000)
-    }, 'btn primary')
+      setTimeout(() => { copyBtn.textContent = 'Copy text' }, 2000)
+    }, 'btn ghost')
     const saveBtn = btn('Save to tracker', async () => {
       if (!s.jd) return
       try {
@@ -248,9 +326,10 @@ function renderResume(): HTMLElement {
         saveBtn.textContent = 'Saved!'
         setTimeout(() => { saveBtn.textContent = 'Save to tracker' }, 2000)
       } catch { alert('Could not save — are you signed in?') }
-    }, 'btn')
-    actions.append(copyBtn, saveBtn)
-    wrap.append(actions)
+    }, 'btn ghost')
+
+    secondRow.append(copyBtn, saveBtn)
+    wrap.append(dlBtn, secondRow)
   }
 
   return wrap
@@ -404,7 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tab.url !== lastTabUrl) {
       lastTabUrl = tab.url
       if (getState().jd) {
-        setState({ jd: null, tailored: '', contacts: [], error: '', outreachMsg: '' })
+        setState({ jd: null, tailored: '', tailoredPayload: null, scoreBefore: null, scoreAfter: null, delta: null, changeLog: [], contacts: [], error: '', outreachMsg: '' })
         render()
       }
     }

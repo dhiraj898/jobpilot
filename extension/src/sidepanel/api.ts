@@ -22,8 +22,38 @@ export const api = {
     req<{ title: string; company: string; description: string; skills: string[]; requirements: string[]; url: string }>(
       'POST', '/ai/extract-jd', { rawText, url }
     ),
-  tailorResume: (jd: string, baseResume: string, jobTitle?: string, company?: string) =>
-    req<{ tailored: string }>('POST', '/ai/tailor', { jd, baseResume, jobTitle, company }),
+  tailorResume: (
+    jd: string,
+    baseResume: string,
+    jobTitle?: string,
+    company?: string,
+    tailoredPayload?: Record<string, unknown> | null
+  ) =>
+    req<{
+      tailored: string
+      tailoredPayload: Record<string, unknown>
+      tailoredResume: string
+      scoreBefore: { score: number; matchedKeywords: string[]; missingKeywords: string[]; topMissingForSummary: string[]; topMissingForBullets: string[]; breakdown: { skillsMatch: number; expMatch: number; summaryMatch: number }; summary: string }
+      scoreAfter: { score: number; matchedKeywords: string[]; missingKeywords: string[]; topMissingForSummary: string[]; topMissingForBullets: string[]; breakdown: { skillsMatch: number; expMatch: number; summaryMatch: number }; summary: string }
+      delta: number
+      changeLog: string[]
+    }>('POST', '/ai/tailor', { jd, baseResume, jobTitle, company, tailoredPayload }),
+
+  downloadResume: async (resumeText: string, filename: string, tailoredPayload?: Record<string, unknown> | null): Promise<void> => {
+    const res = await fetch(`${BASE}/ai/download-resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+      body: JSON.stringify({ resumeText, filename, tailoredPayload }),
+    })
+    if (!res.ok) throw new Error('Failed to generate document')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${filename}.docx`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
   outreach: (jd: string, contacts: unknown[]) =>
     req<{ message: string }>('POST', '/ai/outreach-msg', { jd, contacts }),
 

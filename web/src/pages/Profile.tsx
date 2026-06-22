@@ -155,7 +155,7 @@ export default function Profile() {
             className="border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center hover:border-blue-300 hover:bg-blue-50/30 transition-all cursor-pointer group"
             onClick={() => fileRef.current?.click()}
             onDragOver={e => e.preventDefault()}
-            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && /\.(pdf|docx|txt)$/i.test(f.name)) handleFile(f) }}
           >
             <div className="text-4xl mb-4">📄</div>
             <p className="text-base font-medium text-gray-700 mb-1 group-hover:text-blue-700 transition-colors">
@@ -165,9 +165,10 @@ export default function Profile() {
             <span className="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
               Choose file
             </span>
-            <p className="text-xs text-gray-400 mt-4">PDF or TXT · max 10 MB</p>
+            <p className="text-xs text-gray-400 mt-4">PDF, Word (.docx), or TXT · max 10 MB</p>
+            <p className="text-xs text-blue-500 mt-2 font-medium">Upload .docx to preserve your original formatting when downloading tailored CVs</p>
           </div>
-          <input ref={fileRef} type="file" accept=".pdf,.txt" className="hidden"
+          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
 
           {error && <p className="mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-3">{error}</p>}
