@@ -2,6 +2,12 @@ import { getState, setState, subscribe, setToken, logout } from './store'
 import type { JD } from './store'
 import { api } from './api'
 
+// TODO: Before shipping to production, ensure APP_URL_DEFINE is set via esbuild
+// --define:APP_URL_DEFINE='"https://jobpilot.app"' in the production build command.
+// In development it falls back to localhost.
+declare const APP_URL_DEFINE: string
+const APP_URL = (typeof APP_URL_DEFINE !== 'undefined' ? APP_URL_DEFINE : 'http://localhost:5173')
+
 let root: HTMLElement
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -24,6 +30,40 @@ function ta(placeholder: string, value = ''): HTMLTextAreaElement {
 function btn(label: string, onClick: () => void, cls = 'btn'): HTMLButtonElement {
   const b = document.createElement('button')
   b.textContent = label; b.className = cls; b.onclick = onClick; return b
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+// Steps shown during tailor flow
+const STATUS_STEPS = [
+  'Reading page…',
+  'Extracting job details…',
+  'Tailoring resume…',
+  'Downloading…',
+  'Done!',
+]
+
+function renderStatusBar(msg: string): HTMLElement {
+  const bar = h('div', 'status-bar')
+  // Show which step we're on based on message content
+  const stepEl = h('div', 'status-step', msg)
+  const spinner = h('span', 'spinner', '')
+  bar.append(spinner, stepEl)
+  return bar
+}
+
+// ── Success banner ────────────────────────────────────────────────────────────
+function showSuccessBanner(message: string): void {
+  const existing = document.querySelector('.success-banner')
+  if (existing) existing.remove()
+
+  const banner = h('div', 'success-banner', message)
+  const closeBtn = btn('×', () => banner.remove(), 'banner-close')
+  banner.append(closeBtn)
+  document.body.append(banner)
+
+  setTimeout(() => {
+    if (document.body.contains(banner)) banner.remove()
+  }, 5000)
 }
 
 // ── Content script bridge ─────────────────────────────────────────────────────
@@ -70,6 +110,7 @@ function pageScrapeOnce(): { rawText: string; url: string; ready: boolean } {
   const clone = document.body.cloneNode(true) as HTMLElement
   clone.querySelectorAll('script, style, noscript, svg, [aria-hidden="true"]').forEach(el => el.remove())
   const bodyText = (clone.innerText || document.body.innerText || '').trim()
+  // Always returns ready: true — fallback to full body text
   return { rawText: bodyText.slice(0, 20000), url: location.href, ready: true }
 }
 
@@ -89,11 +130,13 @@ async function scrapeAndExtract(): Promise<void> {
   if (!tab?.id) { setState({ error: 'No active tab', loading: false }); return }
   const tabId = tab.id
 
+  // Step 1: Reading page
+  setState({ loading: true, loadingMsg: STATUS_STEPS[0] })
+
   // Poll until the job description is in the DOM (up to 8s)
   let raw: { rawText: string; url: string } = { rawText: '', url: '' }
   const deadline = Date.now() + 8000
   while (true) {
-    setState({ loadingMsg: 'Reading page… (waiting for job to load)' })
     try {
       const [result] = await chrome.scripting.executeScript({
         target: { tabId },
@@ -105,6 +148,7 @@ async function scrapeAndExtract(): Promise<void> {
         setState({ error: `executeScript returned null — result: ${JSON.stringify(result)}`, loading: false, loadingMsg: '' })
         return
       }
+      // pageScrapeOnce always returns ready: true now
       if (snap.ready) { raw = snap; break }
       if (Date.now() >= deadline) { raw = snap; break }
       await new Promise(r => setTimeout(r, 400))
@@ -119,7 +163,8 @@ async function scrapeAndExtract(): Promise<void> {
     return
   }
 
-  setState({ loadingMsg: `AI extracting… (${raw.rawText.length} chars read)` })
+  // Step 2: Extracting job details
+  setState({ loadingMsg: `${STATUS_STEPS[1]} (${raw.rawText.length} chars read)` })
   try {
     const jd = await api.extractJD(raw.rawText, raw.url)
     if (!jd.title && !jd.description) throw new Error(`No job info found — try scrolling the job description into view first`)
@@ -128,7 +173,8 @@ async function scrapeAndExtract(): Promise<void> {
     setState({ jd, contacts: cResult?.result ?? [], error: '', loading: false, loadingMsg: '' })
     render()
   } catch (e) {
-    setState({ error: `AI extraction failed: ${e instanceof Error ? e.message : 'unknown'}`, loading: false, loadingMsg: '' })
+    const msg = e instanceof Error ? e.message : 'unknown'
+    setState({ error: `AI extraction failed: ${msg}`, loading: false, loadingMsg: '' })
   }
 }
 
@@ -142,15 +188,49 @@ function renderResume(): HTMLElement {
     setState({ loading: true, error: '', jd: null, tailored: '', tailoredPayload: null, scoreBefore: null, scoreAfter: null, delta: null, changeLog: [], loadingMsg: '' })
     render()
     await scrapeAndExtract()
+    render()
   }, 'btn primary full')
   wrap.append(scrapeBtn)
-  if (s.error) wrap.append(h('p', 'err', s.error))
+  if (s.error) {
+    const errEl = h('div', 'err-block')
+    errEl.append(h('p', 'err', s.error))
 
-  // ── Step 2: Full JD display ─────────────────────────────────────────────────
+    // Handle "No resume on file" error with helpful guidance
+    if (s.error.toLowerCase().includes('no resume') || s.error.toLowerCase().includes('no base resume') || s.error.toLowerCase().includes('no cv')) {
+      const guideMsg = h('p', 'err-guide', 'Upload your base resume first — open the JobPilot app and go to Profile.')
+      const openAppBtn = btn('Open JobPilot → Profile', () => {
+        chrome.tabs.create({ url: `${APP_URL}/profile` })
+      }, 'btn primary')
+      errEl.append(guideMsg, openAppBtn)
+    }
+
+    wrap.append(errEl)
+  }
+
+  // ── Step 2: JD Preview (title + company confirmation) ──────────────────────
   if (s.jd) {
     const jd = s.jd
 
-    // Header card
+    // JD confirmation card with re-scrape option
+    const confirmCard = h('div', 'jd-confirm-card')
+    const confirmHeader = h('div', 'jd-confirm-header')
+    confirmHeader.append(h('span', 'jd-confirm-label', 'Extracted job:'))
+    const reScrapeBtn = btn('Looks wrong? Re-scrape', async () => {
+      setState({ loading: true, error: '', jd: null, tailored: '', tailoredPayload: null, scoreBefore: null, scoreAfter: null, delta: null, changeLog: [], loadingMsg: '' })
+      render()
+      await scrapeAndExtract()
+      render()
+    }, 'btn ghost-sm')
+    confirmHeader.append(reScrapeBtn)
+    confirmCard.append(confirmHeader)
+
+    const jobLine = h('div', 'jd-confirm-job')
+    if (jd.title) jobLine.append(h('strong', 'jd-confirm-title', jd.title))
+    if (jd.company) jobLine.append(h('span', 'jd-confirm-company', ` @ ${jd.company}`))
+    confirmCard.append(jobLine)
+    wrap.append(confirmCard)
+
+    // Full JD display card
     const card = h('div', 'jd-card')
     const titleLine = h('div', 'jd-title-line')
     titleLine.append(h('strong', 'jd-role', jd.title || '—'))
@@ -217,8 +297,16 @@ function renderResume(): HTMLElement {
     const tailorLabel = isTailored ? '↺ Re-tailor for this role' : 'Redraft CV with AI →'
     const tailorBtn = btn(tailorLabel, async () => {
       const base = s.baseResume.trim()
-      if (!base) { setState({ error: 'No CV found — upload your resume on the Profile page first.' }); render(); return }
-      setState({ loading: true, loadingMsg: 'Scoring your resume against this JD…' }); render()
+      if (!base) {
+        // Show helpful "No resume" error with link to profile
+        setState({
+          error: 'No CV found — upload your resume on the Profile page first.',
+        })
+        render()
+        return
+      }
+      // Step 3: Tailoring resume
+      setState({ loading: true, loadingMsg: STATUS_STEPS[2] }); render()
       try {
         const result = await api.tailorResume(
           jd.description, base, jd.title, jd.company,
@@ -234,7 +322,8 @@ function renderResume(): HTMLElement {
           loading: false, loadingMsg: '',
         }); render()
       } catch (e) {
-        setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Tailoring failed' }); render()
+        const msg = e instanceof Error ? e.message : 'Tailoring failed'
+        setState({ loading: false, loadingMsg: '', error: msg }); render()
       }
     }, 'btn primary full')
     wrap.append(tailorBtn)
@@ -300,19 +389,17 @@ function renderResume(): HTMLElement {
 
     // ── Actions ─────────────────────────────────────────────────────────────
     const dlBtn = btn('⬇ Download .docx', async () => {
-      dlBtn.textContent = 'Generating…'
-      ;(dlBtn as HTMLButtonElement).disabled = true
+      setState({ loading: true, loadingMsg: STATUS_STEPS[3] }); render()
       try {
         const role = s.jd?.title || 'resume'
         const co = s.jd?.company || ''
         const filename = `${role}${co ? '-' + co : ''}-tailored`.replace(/\s+/g, '-').toLowerCase()
         await api.downloadResume(s.tailored, filename, s.tailoredPayload)
-        dlBtn.textContent = '✓ Downloaded'
-        setTimeout(() => { dlBtn.textContent = '⬇ Download .docx'; (dlBtn as HTMLButtonElement).disabled = false }, 3000)
+        setState({ loading: false, loadingMsg: '' }); render()
+        // Show green success banner
+        showSuccessBanner('Resume downloaded! Check your Downloads folder.')
       } catch (e) {
-        dlBtn.textContent = '⬇ Download .docx'
-        ;(dlBtn as HTMLButtonElement).disabled = false
-        setState({ error: e instanceof Error ? e.message : 'Could not generate document — try again' }); render()
+        setState({ loading: false, loadingMsg: '', error: e instanceof Error ? e.message : 'Could not generate document — try again' }); render()
       }
     }, 'btn primary full')
 
@@ -382,7 +469,7 @@ function renderTracker(): HTMLElement {
   const wrap = h('div', 'tab-content')
   wrap.append(h('h3', 'section-title', 'Application tracker'))
   wrap.append(h('p', 'sub', 'Manage all saved applications in the web dashboard.'))
-  wrap.append(btn('Open dashboard', () => chrome.tabs.create({ url: 'http://localhost:5173/applications' }), 'btn primary'))
+  wrap.append(btn('Open dashboard', () => chrome.tabs.create({ url: `${APP_URL}/applications` }), 'btn primary'))
   return wrap
 }
 
@@ -390,7 +477,7 @@ function renderSettings(): HTMLElement {
   const wrap = h('div', 'tab-content')
   wrap.append(h('h3', 'section-title', 'AI settings'))
   wrap.append(h('p', 'sub', 'API key and model are configured in the web dashboard Settings page. Your key is stored encrypted in the database.'))
-  wrap.append(btn('Open dashboard settings', () => chrome.tabs.create({ url: 'http://localhost:5173/settings' }), 'btn primary'))
+  wrap.append(btn('Open dashboard settings', () => chrome.tabs.create({ url: `${APP_URL}/settings` }), 'btn primary'))
   return wrap
 }
 
@@ -444,7 +531,9 @@ function renderMain(): HTMLElement {
   wrap.append(header, renderTabs())
 
   if (s.loading) {
-    wrap.append(h('div', 'loading', s.loadingMsg || 'Working…'))
+    const loadingWrap = h('div', 'loading-wrap')
+    loadingWrap.append(renderStatusBar(s.loadingMsg || 'Working…'))
+    wrap.append(loadingWrap)
     return wrap
   }
 

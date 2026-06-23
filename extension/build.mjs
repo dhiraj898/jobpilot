@@ -16,6 +16,9 @@ await Promise.all([
     entryPoints: ['src/sidepanel/index.ts'],
     outfile: 'dist/sidepanel.js',
     format: 'esm',
+    define: {
+      APP_URL_DEFINE: process.env.APP_URL ? JSON.stringify(process.env.APP_URL) : '"https://jobpilot.app"',
+    },
   }),
   esbuild.build({
     ...shared,
