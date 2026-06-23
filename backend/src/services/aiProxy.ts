@@ -33,7 +33,7 @@ export async function callAI(opts: AICallOptions): Promise<string> {
 
   const body: Record<string, unknown> = {
     model: opts.model,
-    max_tokens: opts.maxTokens || 2000,
+    max_tokens: opts.maxTokens || 4000,
     temperature: opts.temperature ?? 0.3,
     messages,
   }
@@ -50,7 +50,11 @@ export async function callAI(opts: AICallOptions): Promise<string> {
   }
   console.log(`[callAI] response: ${JSON.stringify(data).slice(0, 500)}`)
   const choice = data.choices?.[0]
+  // Prefer content (direct output). reasoning_content is chain-of-thought from sarvam-30b — only use as last resort.
   const content = choice?.message?.content || choice?.message?.reasoning_content
   if (!content) throw new Error(`AI returned empty response (finish_reason=${choice?.finish_reason}). Raw: ${JSON.stringify(data).slice(0, 300)}`)
+  if (!choice?.message?.content && choice?.message?.reasoning_content) {
+    console.warn(`[callAI] WARNING: model=${opts.model} returned only reasoning_content — JSON tasks will fail. Use sarvam-105b instead.`)
+  }
   return content
 }

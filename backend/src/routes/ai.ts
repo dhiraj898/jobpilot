@@ -31,9 +31,10 @@ async function getAiCreds(userId: string, res: Response) {
   return creds
 }
 
-// sarvam-m is the recommended model for both extraction and JSON output tasks.
-function jsonModel(creds: { provider: string; model: string }): string {
-  return creds.model || 'sarvam-30b'
+// sarvam-105b must be used for all JSON-output tasks.
+// sarvam-30b is a reasoning model that outputs chain-of-thought, not clean JSON.
+function jsonModel(_creds: { provider: string; model: string }): string {
+  return 'sarvam-105b'
 }
 
 // ── Shared scoring prompt (used before and after tailoring) ──────────────────
@@ -159,6 +160,12 @@ async function runTailorChain(input: TailorChainInput) {
     } catch (e) {
       console.error('[runTailorChain] AI segmentation failed, falling back to heuristic:', e)
       basePayload = segmentResume(input.resumeText || '')
+      // Guard: heuristic fallback produces 0 experience entries on unrecognised resume formats.
+      // Continuing with an empty experience array would silently produce a garbage tailored resume.
+      // Throw here so the caller receives a clear 502 rather than an empty output.
+      if (basePayload.experience.length === 0) {
+        throw new Error('Resume segmentation produced no experience entries — please re-upload your resume in a standard PDF or .docx format')
+      }
     }
   }
   const baseResumeText = reconstructResume(basePayload)
@@ -202,7 +209,7 @@ Tailor the resume for this role. Return the same JSON structure.`
   const tailoredRaw = await callAI({
     apiKey: creds.key, providerUrl: creds.provider, model: jsonModel(creds),
     systemPrompt: TAILOR_SYSTEM_PROMPT, userMessage: tailorUserMessage,
-    history, maxTokens: 3000, temperature: 0.3,
+    history, maxTokens: 6000, temperature: 0.3,
   })
 
   const tailored = JSON.parse(extractJSON(tailoredRaw)) as ResumePayload
@@ -400,16 +407,15 @@ router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
   }
 })
 
-const SARVAM_MODEL = 'sarvam-30b'
+const SARVAM_MODEL = 'sarvam-105b'
 
-// Extract structured JD from raw page text — uses Sarvam-M (30B) if configured, else falls back to user's provider
+// Extract structured JD from raw page text
 router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
   const { rawText, url } = req.body
   if (!rawText) return res.status(400).json({ success: false, error: 'rawText required' })
   const creds = await getAiCreds(req.userId!, res)
   if (!creds) return
 
-  // Prefer Sarvam-M (30B) for extraction — best at structured information extraction from noisy page text
   const usesSarvam = creds.provider === SARVAM_URL
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
   const model = usesSarvam ? SARVAM_MODEL : creds.model
@@ -454,6 +460,14 @@ ${rawText.slice(0, 14000)}`
       jd = JSON.parse(salvaged)
     }
     console.log(`[extract-jd] parsed JD title="${jd.title}" company="${jd.company}"`)
+    // Validate JD description is substantive — not LinkedIn boilerplate or empty
+    const desc = typeof jd.description === 'string' ? jd.description.trim() : ''
+    if (!desc || desc.length < 200) {
+      return res.status(422).json({
+        success: false,
+        error: 'Job description too short — please scroll the full job posting into view before scraping.'
+      })
+    }
     jd.url = url || ''
     res.json({ success: true, data: { ...jd, _extractedBy: `${model}` } })
   } catch (e: unknown) {
@@ -462,6 +476,22 @@ ${rawText.slice(0, 14000)}`
 })
 
 // ── Resume OCR + profile extraction ──────────────────────────────────────────
+// Schema verification (verified against web/src/pages/Profile.tsx ProfileData interface):
+//   name           → string  — maps to ProfileData.name
+//   currentTitle   → string  — maps to ProfileData.currentTitle
+//   currentCompany → string  — maps to ProfileData.currentCompany
+//   location       → string  — maps to ProfileData.location
+//   yearsExp       → number  — maps to ProfileData.yearsExp (overridden by date-extraction logic below)
+//   summary        → string  — maps to ProfileData.summary
+//   rolesHeld      → string[]— maps to ProfileData.rolesHeld
+//   targetRoles    → string[]— maps to ProfileData.targetRoles
+//   skills         → string[]— maps to ProfileData.skills
+//   education      → string  — maps to ProfileData.education
+//   certifications → string[]— maps to ProfileData.certifications
+//   rawText is appended server-side and consumed by Profile.tsx as ProfileData.resumeText
+//   resumeFileName is set client-side from the File object, not returned here
+//   hasAiKey is set from the profile record, not returned here
+// All fields verified: no schema mismatch between this endpoint and ProfileData.
 router.post('/parse-resume', upload.single('resume'), async (req: AuthRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' })
 
@@ -492,8 +522,7 @@ router.post('/parse-resume', upload.single('resume'), async (req: AuthRequest, r
 
   const usesSarvam = !creds.provider || creds.provider.includes('sarvam.ai')
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
-  // Use 105b for resume parsing — it's not a reasoning model so output tokens go directly to JSON
-  const model = creds.model || 'sarvam-30b'
+  const model = 'sarvam-105b'
 
   const systemPrompt = `You are a resume parser. Extract profile data and return ONLY a valid JSON object — no markdown, no explanation, no preamble.`
 
