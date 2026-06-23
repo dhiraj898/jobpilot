@@ -212,7 +212,7 @@ Tailor the resume for this role. Return the same JSON structure.`
   const tailoredRaw = await callAI({
     apiKey: creds.key, providerUrl: creds.provider, model: jsonModel(creds),
     systemPrompt: TAILOR_SYSTEM_PROMPT, userMessage: tailorUserMessage,
-    history, maxTokens: 6000, temperature: 0.3,
+    history, maxTokens: 4000, temperature: 0.3,
   })
 
   const tailored = JSON.parse(extractJSON(tailoredRaw)) as ResumePayload
