@@ -1,6 +1,6 @@
 import { getState, setState, subscribe, setToken, logout } from './store'
 import type { JD } from './store'
-import { api } from './api'
+import { api, HttpError } from './api'
 
 // TODO: Before shipping to production, ensure APP_URL_DEFINE is set via esbuild
 // --define:APP_URL_DEFINE='"https://jobpilot.app"' in the production build command.
@@ -64,6 +64,20 @@ function showSuccessBanner(message: string): void {
   setTimeout(() => {
     if (document.body.contains(banner)) banner.remove()
   }, 5000)
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+function handle401(err: Error | string): boolean {
+  const isUnauth = err instanceof HttpError
+    ? err.status === 401
+    : (() => { const msg = typeof err === 'string' ? err : err.message; return msg.toLowerCase().includes('unauthorized') })()
+  if (isUnauth) {
+    chrome.storage.local.remove(['token', 'user'])
+    logout()
+    render()
+    return true
+  }
+  return false
 }
 
 // ── Content script bridge ─────────────────────────────────────────────────────
@@ -133,6 +147,11 @@ async function scrapeAndExtract(): Promise<void> {
   // Step 1: Reading page
   setState({ loading: true, loadingMsg: STATUS_STEPS[0] })
 
+  // Wait for LinkedIn's dynamic panel to load before scraping
+  if (tab.url && tab.url.includes('linkedin.com')) {
+    await new Promise(resolve => setTimeout(resolve, 1500))
+  }
+
   // Poll until the job description is in the DOM (up to 8s)
   let raw: { rawText: string; url: string } = { rawText: '', url: '' }
   const deadline = Date.now() + 8000
@@ -173,8 +192,10 @@ async function scrapeAndExtract(): Promise<void> {
     setState({ jd, contacts: cResult?.result ?? [], error: '', loading: false, loadingMsg: '' })
     render()
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'unknown'
-    setState({ error: `AI extraction failed: ${msg}`, loading: false, loadingMsg: '' })
+    const err = e instanceof Error ? e : new Error(String(e))
+    if (!handle401(err)) {
+      setState({ error: `AI extraction failed: ${err.message}`, loading: false, loadingMsg: '' })
+    }
   }
 }
 
@@ -415,7 +436,13 @@ function renderResume(): HTMLElement {
         await api.saveApp({ role: s.jd.title, company: s.jd.company, url: s.jd.url, source: 'extension', status: 'saved', tailoredResume: s.tailored })
         saveBtn.textContent = 'Saved!'
         setTimeout(() => { saveBtn.textContent = 'Save to tracker' }, 2000)
-      } catch { alert('Could not save — are you signed in?') }
+      } catch (e) {
+        const err = e instanceof Error ? e : new Error(String(e))
+        if (!handle401(err)) {
+          setState({ error: 'Could not save — are you signed in?' })
+          render()
+        }
+      }
     }, 'btn ghost')
 
     secondRow.append(copyBtn, saveBtn)

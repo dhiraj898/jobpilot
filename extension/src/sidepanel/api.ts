@@ -1,4 +1,12 @@
-const BASE = 'http://localhost:3001'
+declare const API_BASE_DEFINE: string
+const BASE = typeof API_BASE_DEFINE !== 'undefined' ? API_BASE_DEFINE : 'http://localhost:3001'
+
+export class HttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message)
+    this.name = 'HttpError'
+  }
+}
 
 function token(): string { return localStorage.getItem('jp_token') || '' }
 
@@ -9,7 +17,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body ? JSON.stringify(body) : undefined,
   })
   const json = await res.json() as { success: boolean; data: T; error?: string }
-  if (!json.success) throw new Error(json.error || 'Request failed')
+  if (!res.ok || !json.success) throw new HttpError(res.status, json.error || 'Request failed')
   return json.data
 }
 
@@ -61,7 +69,7 @@ export const api = {
     a.href = url
     a.download = `${filename}.docx`
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   },
   outreach: (jd: string, contacts: unknown[]) =>
     req<{ message: string }>('POST', '/ai/outreach-msg', { jd, contacts }),

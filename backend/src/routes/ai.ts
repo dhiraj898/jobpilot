@@ -142,7 +142,7 @@ async function aiSegmentResume(creds: { key: string; provider: string; model: st
     apiKey: creds.key, providerUrl: creds.provider, model: jsonModel(creds),
     systemPrompt: SEGMENT_SYSTEM_PROMPT,
     userMessage: `Parse this resume into the required JSON structure:\n\n${resumeText.slice(0, 8000)}`,
-    maxTokens: 2000, temperature: 0.1,
+    maxTokens: 4000, temperature: 0.1,
   })
   return JSON.parse(extractJSON(raw)) as ResumePayload
 }
@@ -160,11 +160,14 @@ async function runTailorChain(input: TailorChainInput) {
     } catch (e) {
       console.error('[runTailorChain] AI segmentation failed, falling back to heuristic:', e)
       basePayload = segmentResume(input.resumeText || '')
-      // Guard: heuristic fallback produces 0 experience entries on unrecognised resume formats.
-      // Continuing with an empty experience array would silently produce a garbage tailored resume.
-      // Throw here so the caller receives a clear 502 rather than an empty output.
       if (basePayload.experience.length === 0) {
-        throw new Error('Resume segmentation produced no experience entries — please re-upload your resume in a standard PDF or .docx format')
+        // Heuristic also failed — retry AI segmentation once with a smaller input to avoid token issues
+        try {
+          basePayload = await aiSegmentResume(creds, (input.resumeText || '').slice(0, 4000))
+        } catch (e2) {
+          console.error('[runTailorChain] AI segmentation retry also failed:', e2)
+          throw new Error('Could not parse resume structure — please re-upload your resume as a PDF or .docx file')
+        }
       }
     }
   }
@@ -182,7 +185,7 @@ async function runTailorChain(input: TailorChainInput) {
       score: 0, matchedKeywords: [], missingKeywords: [],
       topMissingForSummary: [], topMissingForBullets: [],
       breakdown: { skillsMatch: 0, expMatch: 0, summaryMatch: 0 },
-      summary: 'Score unavailable'
+      summary: 'Scoring unavailable — tailoring will proceed without keyword prioritisation'
     }
   }
 
@@ -268,6 +271,9 @@ Tailor the resume for this role. Return the same JSON structure.`
     scoreAfter,
     delta: scoreAfter.score - scoreBefore.score,
     changeLog,
+    scoreWarning: scoreBefore.score === 0 && !scoreBefore.matchedKeywords.length
+      ? 'Match scoring was unavailable for this tailoring session'
+      : undefined,
   }
 }
 
@@ -282,7 +288,7 @@ async function scoreResume(
     apiKey: creds.key, providerUrl: creds.provider, model: jsonModel(creds),
     systemPrompt: SCORE_SYSTEM_PROMPT,
     userMessage: `TARGET ROLE: ${jobTitle} at ${company}\n\nJOB DESCRIPTION:\n${jobDescription}\n\nRESUME:\n${resumeText}\n\nScore this resume against the job description.`,
-    maxTokens: 1200,
+    maxTokens: 3000,
     temperature: 0.1, // deterministic scoring
   })
   return JSON.parse(extractJSON(raw)) as MatchScoreResult
@@ -420,21 +426,23 @@ router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
   const model = usesSarvam ? SARVAM_MODEL : creds.model
 
-  const systemPrompt = `You are a precise job description extractor. Your task: find the ONE job being advertised in the text and extract its details. Return ONLY valid JSON — no markdown, no explanation.`
-  const userMessage = `This text is from a job page. Extract the PRIMARY job being advertised (ignore any other job listings or UI navigation text). Return this exact JSON:
+  const systemPrompt = `You are a precise job description extractor. Your task: find the ONE job being advertised in the page text and extract its details into clean JSON. Return ONLY valid JSON — no markdown, no explanation.`
+  const userMessage = `This text was scraped from a job posting page. It may contain LinkedIn/job-board UI noise (login prompts, "see who you know", "Easy Apply", promoted job cards, alumni counts, navigation links). Ignore all of that.
+
+Extract ONLY the primary job being advertised. Return this exact JSON:
 {
   "title": "exact job title",
   "company": "hiring company name",
-  "location": "city/remote/hybrid if mentioned",
-  "description": "full body of the job description — responsibilities, about the role, what you will do, about the company. Copy verbatim, preserve all paragraphs. Must be at least 150 words if present.",
-  "skills": ["only technical tools, languages, frameworks, platforms — no soft skills"],
-  "requirements": ["each specific requirement: years of experience, education, certifications, domain expertise"]
+  "location": "city / remote / hybrid if mentioned, else empty string",
+  "description": "clean prose of the job description — combine: About the role, Responsibilities, What you will do, About the company. Strip all UI chrome, login prompts, and unrelated job listings. Keep responsibilities and requirements sentences intact.",
+  "skills": ["technical tools, languages, frameworks, platforms only — no soft skills"],
+  "requirements": ["each specific requirement as a sentence: years of experience, education, certifications, domain knowledge"]
 }
 
-IGNORE: navigation links, 'Easy Apply', 'Save', 'Promoted', 'Viewed', alumni counts, page UI labels.
-FOCUS ON: the section titled 'About the job', 'Job Description', 'Responsibilities', 'What you'll do', 'About us'.
+IGNORE completely: 'Easy Apply', 'Save job', 'Promoted', 'Viewed', alumni/school counts, 'Sign in', 'Join now', 'Reactivate Premium', other job listings shown in sidebar or feed, navigation menus.
+FOCUS ON: sections titled 'About the job', 'Job Description', 'Responsibilities', 'What you will do', 'Who you are', 'Requirements', 'About us / About the company'.
 
-If a field is absent use "" or [].
+If a field is absent, use "" or []. Never leave the JSON incomplete.
 
 TEXT:
 ${rawText.slice(0, 14000)}`
@@ -460,12 +468,11 @@ ${rawText.slice(0, 14000)}`
       jd = JSON.parse(salvaged)
     }
     console.log(`[extract-jd] parsed JD title="${jd.title}" company="${jd.company}"`)
-    // Validate JD description is substantive — not LinkedIn boilerplate or empty
-    const desc = typeof jd.description === 'string' ? jd.description.trim() : ''
-    if (!desc || desc.length < 200) {
+    // Validate that we got at least a job title — description may be short on some pages
+    if (!jd.title || String(jd.title).trim().length < 3) {
       return res.status(422).json({
         success: false,
-        error: 'Job description too short — please scroll the full job posting into view before scraping.'
+        error: 'Could not identify a job title on this page — make sure you are on a job posting and try again.'
       })
     }
     jd.url = url || ''
@@ -707,10 +714,131 @@ async function surgicalDocxReplacement(
   return zip.generateAsync({ type: 'nodebuffer' }) as Promise<Buffer>
 }
 
+// ── .docx generation helpers ─────────────────────────────────────────────────
+
+async function generateDocxFromPayload(payload: ResumePayload): Promise<Buffer> {
+  const DOCX_NS = {
+    page: { width: 12240, height: 15840 },
+    margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+  }
+
+  const children: Paragraph[] = []
+
+  // Contact / Name header
+  if (payload.locked.contact) {
+    children.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: payload.locked.contact, bold: true, size: 32 })],
+      spacing: { after: 200 },
+    }))
+  }
+
+  // Summary section
+  if (payload.summary) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Summary', bold: true, size: 22 })],
+      spacing: { before: 200, after: 100 },
+    }))
+    children.push(new Paragraph({
+      children: [new TextRun({ text: payload.summary, size: 20 })],
+      spacing: { after: 200 },
+    }))
+  }
+
+  // Experience section
+  if (payload.experience.length) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Experience', bold: true, size: 22 })],
+      spacing: { before: 200, after: 100 },
+    }))
+    for (const role of payload.experience) {
+      const headerParts = [role.title]
+      if (role.company) headerParts.push(role.company)
+      if (role.dates) headerParts.push(role.dates)
+      children.push(new Paragraph({
+        children: [new TextRun({ text: headerParts.join('  |  '), bold: true, size: 20 })],
+        spacing: { before: 160, after: 80 },
+      }))
+      for (const bullet of role.bullets) {
+        if (!bullet || !bullet.trim()) continue
+        children.push(new Paragraph({
+          children: [new TextRun({ text: `• ${bullet}`, size: 20 })],
+          spacing: { after: 60 },
+          indent: { left: 360 },
+        }))
+      }
+    }
+  }
+
+  // Skills section
+  if (payload.locked.skills.length) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Skills', bold: true, size: 22 })],
+      spacing: { before: 200, after: 100 },
+    }))
+    children.push(new Paragraph({
+      children: [new TextRun({ text: payload.locked.skills.join(' · '), size: 20 })],
+      spacing: { after: 200 },
+    }))
+  }
+
+  // Education section
+  if (payload.locked.education) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Education', bold: true, size: 22 })],
+      spacing: { before: 200, after: 100 },
+    }))
+    children.push(new Paragraph({
+      children: [new TextRun({ text: payload.locked.education, size: 20 })],
+      spacing: { after: 200 },
+    }))
+  }
+
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          size: { width: DOCX_NS.page.width, height: DOCX_NS.page.height },
+          margin: DOCX_NS.margin,
+        },
+      },
+      children,
+    }],
+  })
+
+  return Packer.toBuffer(doc) as Promise<Buffer>
+}
+
+async function generateSimpleDocx(resumeText: string, filename?: string): Promise<Buffer> {
+  const lines = resumeText.split('\n')
+  const children: Paragraph[] = lines.map(line =>
+    new Paragraph({
+      children: [new TextRun({ text: line, size: 20 })],
+      spacing: { after: 60 },
+    })
+  )
+
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 12240, height: 15840 },
+          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+        },
+      },
+      children,
+    }],
+  })
+
+  return Packer.toBuffer(doc) as Promise<Buffer>
+}
+
 // ── Generate downloadable .docx from tailored resume text ────────────────────
 router.post('/download-resume', async (req: AuthRequest, res: Response) => {
   const { resumeText, tailoredPayload, filename } = req.body
-  if (!resumeText) return res.status(400).json({ success: false, error: 'resumeText required' })
+  if (!resumeText && !tailoredPayload) return res.status(400).json({ success: false, error: 'resumeText or tailoredPayload required' })
+
+  const safeName = (filename || 'tailored-resume').replace(/[^a-z0-9_\-]/gi, '_')
 
   // Try surgical replacement if user uploaded a .docx and we have a structured payload
   if (tailoredPayload && req.userId) {
@@ -718,17 +846,41 @@ router.post('/download-resume', async (req: AuthRequest, res: Response) => {
       const profile = await db.profile.findUnique({ where: { userId: req.userId } })
       if (profile?.resumeDocx) {
         const buffer = await surgicalDocxReplacement(profile.resumeDocx as Buffer, tailoredPayload as ResumePayload)
-        const safeName = (filename || 'tailored-resume').replace(/[^a-z0-9_\-]/gi, '_')
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`)
         return res.send(buffer)
       }
     } catch (e) {
-      console.error('[download-resume] surgical replacement failed, falling back:', e)
+      console.error('[download-resume] surgical replacement failed, falling back to generation:', e)
+      // Fall through to generation below
     }
   }
 
-  res.status(400).json({ success: false, error: 'No original .docx found — please re-upload your original resume (.docx) on the Profile page first.' })
+  // Generate from payload (works for PDF users or when surgical fails)
+  if (tailoredPayload) {
+    try {
+      const buffer = await generateDocxFromPayload(tailoredPayload as ResumePayload)
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`)
+      return res.send(buffer)
+    } catch (e) {
+      console.error('[download-resume] generateDocxFromPayload failed:', e)
+    }
+  }
+
+  // Last resort: plain text document
+  if (resumeText) {
+    try {
+      const buffer = await generateSimpleDocx(resumeText as string, filename as string)
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.docx"`)
+      return res.send(buffer)
+    } catch (e) {
+      console.error('[download-resume] generateSimpleDocx failed:', e)
+    }
+  }
+
+  return res.status(400).json({ success: false, error: 'No resume content to generate document from' })
 })
 
 export default router

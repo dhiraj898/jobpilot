@@ -39,7 +39,19 @@ export async function callAI(opts: AICallOptions): Promise<string> {
   }
 
   console.log(`[callAI] POST ${url} model=${opts.model}`)
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 45_000)
+  let res: Response
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('AI request timed out after 45 seconds. Please try again.')
+    }
+    throw e
+  } finally {
+    clearTimeout(timeout)
+  }
   if (!res.ok) {
     const err = await res.text()
     console.error(`[callAI] error ${res.status}: ${err.slice(0, 500)}`)

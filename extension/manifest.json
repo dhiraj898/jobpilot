@@ -3,7 +3,7 @@
   "name": "JobPilot",
   "version": "1.0.0",
   "description": "Tailor resumes, generate referral outreach, and track applications — right from any job page.",
-  "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
+  "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://localhost:3001/*"],
   "background": {
     "service_worker": "background.js",

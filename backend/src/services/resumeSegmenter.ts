@@ -180,11 +180,12 @@ export function segmentResume(text: string): ResumePayload {
       }
 
       if (title) {
+        const filteredBullets = bullets.filter(b => b.trim().length > 0)
         experience.push({
           title: title.replace(/\s+\d{4}.*$/, '').trim(), // strip trailing dates from title
           company,
           dates,
-          bullets: bullets.length ? bullets : ['']
+          bullets: filteredBullets.length ? filteredBullets : ['See role description above']
         })
       }
 

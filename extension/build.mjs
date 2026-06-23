@@ -8,6 +8,11 @@ const dist = resolve(__dirname, 'dist')
 mkdirSync(dist, { recursive: true })
 mkdirSync(resolve(dist, 'icons'), { recursive: true })
 
+const sharedDefine = {
+  APP_URL_DEFINE: process.env.APP_URL ? JSON.stringify(process.env.APP_URL) : '"https://jobpilot.app"',
+  API_BASE_DEFINE: JSON.stringify(process.env.API_BASE || 'http://localhost:3001'),
+}
+
 const shared = { bundle: true, platform: 'browser', target: 'chrome120', logLevel: 'info' }
 
 await Promise.all([
@@ -16,21 +21,21 @@ await Promise.all([
     entryPoints: ['src/sidepanel/index.ts'],
     outfile: 'dist/sidepanel.js',
     format: 'esm',
-    define: {
-      APP_URL_DEFINE: process.env.APP_URL ? JSON.stringify(process.env.APP_URL) : '"https://jobpilot.app"',
-    },
+    define: sharedDefine,
   }),
   esbuild.build({
     ...shared,
     entryPoints: ['src/background/index.ts'],
     outfile: 'dist/background.js',
     format: 'esm',
+    define: sharedDefine,
   }),
   esbuild.build({
     ...shared,
     entryPoints: ['src/content/index.ts'],
     outfile: 'dist/content.js',
     format: 'iife',
+    define: sharedDefine,
   }),
 ])
 

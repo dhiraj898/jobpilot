@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import { api } from '../api/client'
 
@@ -7,6 +8,7 @@ interface Application {
 }
 
 const STATUS_META: Record<string, { color: string; bg: string; dot: string }> = {
+  saved:     { color: '#374151', bg: '#F3F4F6', dot: '#9CA3AF' },
   applied:   { color: '#1D4ED8', bg: '#EFF6FF', dot: '#3B82F6' },
   interview: { color: '#92400E', bg: '#FEF3C7', dot: '#F59E0B' },
   offer:     { color: '#065F46', bg: '#ECFDF5', dot: '#10B981' },
@@ -35,15 +37,22 @@ function Card({ title, children, style }: { title: string; children: React.React
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [apps, setApps] = useState<Application[]>([])
   const [total, setTotal] = useState(0)
-  const [profile, setProfile] = useState<{ name?: string; resumeFileName?: string; skills?: string[]; currentTitle?: string } | null>(null)
+  const [profile, setProfile] = useState<{ name?: string; resumeFileName?: string; skills?: string[]; currentTitle?: string; sarvamApiKey?: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.get('/applications?limit=200').then(r => { setApps(r.data.data.applications); setTotal(r.data.data.total) }).catch(() => {})
-    api.get('/profile').then(r => setProfile(r.data.data)).catch(() => {})
+    api.get('/applications?limit=200')
+      .then(r => { setApps(r.data.data.applications); setTotal(r.data.data.total) })
+      .catch(err => setError(err.message || 'Failed to load dashboard data'))
+    api.get('/profile')
+      .then(r => setProfile(r.data.data))
+      .catch(err => setError(err.message || 'Failed to load profile'))
   }, [])
 
+  const saved     = apps.filter(a => a.status === 'saved').length
   const interviews = apps.filter(a => a.status === 'interview').length
   const offers     = apps.filter(a => a.status === 'offer').length
   const rejected   = apps.filter(a => a.status === 'rejected').length
@@ -73,6 +82,7 @@ export default function Dashboard() {
     { label: 'Skills added', done: !!(profile?.skills?.length) },
     { label: 'First application', done: total > 0 },
     { label: 'Got an interview', done: interviews > 0 },
+    { label: 'Configure AI key', done: !!profile?.sarvamApiKey },
   ]
   const completeness = Math.round(checks.filter(c => c.done).length / checks.length * 100)
   const circum = 2 * Math.PI * 15.9
@@ -87,12 +97,14 @@ export default function Dashboard() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   const pipeline = [
+    { label: 'Saved',      count: saved,      color: '#6B7280', bg: '#F3F4F6' },
     { label: 'Applied',    count: total,      color: '#3B5BFF', bg: '#EEF2FF' },
     { label: 'Interviews', count: interviews,  color: '#7C3AED', bg: '#F5F3FF' },
     { label: 'Offers',     count: offers,      color: '#0891B2', bg: '#ECFEFF' },
     { label: 'Rejected',   count: rejected,    color: '#DC2626', bg: '#FEF2F2' },
   ]
   const convRates = [
+    total      ? `${Math.round(applied / Math.max(saved,1) * 100)}%` : '—',
     total      ? `${interviewRate}%` : '—',
     interviews ? `${offerRate}%` : '—',
     offers     ? `${Math.round(offers / total * 100)}%` : '—',
@@ -109,6 +121,12 @@ export default function Dashboard() {
     <AppShell>
       <div style={{ padding: '24px 32px 40px', background: '#F4F6F9', minHeight: '100vh' }}>
 
+        {error && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
+            {error} — try refreshing the page.
+          </div>
+        )}
+
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
           <div>
@@ -117,14 +135,15 @@ export default function Dashboard() {
             </h1>
             <p style={{ fontSize: 13, color: '#64748B' }}>{today}</p>
           </div>
-          <a href="/applications" style={{
+          <button onClick={() => navigate('/applications')} style={{
             display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none',
             background: '#3B5BFF', color: '#fff', padding: '9px 18px', borderRadius: 8,
-            fontSize: 13, fontWeight: 600, boxShadow: '0 2px 8px rgba(59,91,255,0.3)'
+            fontSize: 13, fontWeight: 600, boxShadow: '0 2px 8px rgba(59,91,255,0.3)',
+            border: 'none', cursor: 'pointer'
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             View All
-          </a>
+          </button>
         </div>
 
         {/* Pipeline funnel */}
@@ -238,6 +257,11 @@ export default function Dashboard() {
                       {c.done ? '✓' : ''}
                     </div>
                     <span style={{ fontSize: 12, color: c.done ? '#1E293B' : '#94A3B8' }}>{c.label}</span>
+                    {c.label === 'Configure AI key' && !c.done && (
+                      <button onClick={() => navigate('/settings')} style={{ fontSize: 11, color: '#3B5BFF', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 4, padding: 0 }}>
+                        Go to Settings
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
