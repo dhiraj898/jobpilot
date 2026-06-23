@@ -3,8 +3,11 @@ import crypto from 'crypto'
 const ALGORITHM = 'aes-256-gcm'
 
 function getKey(): Buffer {
-  // ENCRYPTION_KEY must be a 64-char hex string (32 bytes) in .env
-  return Buffer.from(process.env.ENCRYPTION_KEY || '0'.repeat(64), 'hex')
+  const key = process.env.ENCRYPTION_KEY
+  if (!key || !/^[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error('ENCRYPTION_KEY must be a 64-character hex string. Generate one with: openssl rand -hex 32')
+  }
+  return Buffer.from(key, 'hex')
 }
 
 export function encrypt(plaintext: string): string {

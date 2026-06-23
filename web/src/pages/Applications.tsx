@@ -4,8 +4,9 @@ import { api } from '../api/client'
 
 interface Application { id: string; role: string; company: string; status: string; source: string; appliedAt: string; notes: string; url: string }
 
-const STATUSES = ['all', 'applied', 'interview', 'offer', 'rejected']
+const STATUSES = ['all', 'saved', 'applied', 'interview', 'offer', 'rejected']
 const STATUS_BADGE: Record<string, string> = {
+  saved: 'bg-gray-100 text-gray-700',
   applied: 'bg-blue-50 text-blue-700',
   interview: 'bg-amber-50 text-amber-700',
   offer: 'bg-green-50 text-green-700',
@@ -16,11 +17,17 @@ export default function Applications() {
   const [apps, setApps] = useState<Application[]>([])
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   function load(status: string) {
     setLoading(true)
     const q = status !== 'all' ? `?status=${status}&` : '?'
-    api.get(`/applications${q}limit=100`).then(r => { setApps(r.data.data.applications); setLoading(false) })
+    api.get(`/applications${q}limit=100`)
+      .then(r => { setApps(r.data.data.applications); setLoading(false) })
+      .catch(err => {
+        setError(err.message || 'Failed to load applications')
+        setLoading(false)
+      })
   }
 
   useEffect(() => { load(filter) }, [filter])
@@ -46,6 +53,12 @@ export default function Applications() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm mb-4">
+          {error}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
@@ -59,6 +72,9 @@ export default function Applications() {
               <tr key={a.id} className="border-t border-gray-50 hover:bg-gray-50">
                 <td className="px-5 py-3 font-medium text-gray-900">
                   {a.url ? <a href={a.url} target="_blank" rel="noreferrer" className="hover:text-brand">{a.role}</a> : a.role}
+                  {a.notes && (
+                    <p className="text-xs text-gray-500 mt-1 italic">{a.notes}</p>
+                  )}
                 </td>
                 <td className="px-5 py-3 text-gray-600">{a.company}</td>
                 <td className="px-5 py-3 text-gray-400 text-xs">{new Date(a.appliedAt).toLocaleDateString()}</td>
@@ -66,11 +82,17 @@ export default function Applications() {
                 <td className="px-5 py-3">
                   <select value={a.status} onChange={e => updateStatus(a.id, e.target.value)}
                     className={`text-xs font-medium px-2 py-0.5 rounded border-0 cursor-pointer ${STATUS_BADGE[a.status] || 'bg-gray-100 text-gray-600'}`}>
+                    <option value="saved">saved</option>
                     {['applied','interview','offer','rejected'].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
                 <td className="px-5 py-3">
-                  <button onClick={() => api.delete(`/applications/${a.id}`).then(() => setApps(prev => prev.filter(x => x.id !== a.id)))}
+                  <button onClick={() => {
+                    if (!window.confirm(`Delete application for ${a.company}? This cannot be undone.`)) return
+                    api.delete(`/applications/${a.id}`)
+                      .then(() => setApps(prev => prev.filter(x => x.id !== a.id)))
+                      .catch(err => setError(err.message || 'Failed to delete application'))
+                  }}
                     className="text-xs text-gray-400 hover:text-red-500">Remove</button>
                 </td>
               </tr>

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
-export const db = globalForPrisma.prisma || new PrismaClient()
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+// In serverless environments (Vercel) we intentionally do NOT cache the client
+// across invocations. Connection pooling is handled by Supabase pgbouncer —
+// DATABASE_URL must point to port 6543 with ?pgbouncer=true&connection_limit=1.
+export const db = new PrismaClient()

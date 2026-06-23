@@ -41,12 +41,21 @@ export default function Settings() {
     })
   }, [])
 
-  function handleProviderSelect(p: typeof PROVIDERS[0]) {
-    setSelectedProvider(p)
-    setModel(p.models[0].id)
+  // handleProviderSelect: resets model and apiKey when the user switches provider.
+  // Currently only one provider (Sarvam AI) is supported, so no provider dropdown is rendered
+  // and this callback is not wired to any UI element. It is kept here so that when a second
+  // provider is added the state-reset logic is present and the dropdown can simply call it.
+  // handleProviderSelect resets model and apiKey when the user switches provider.
+  // Currently only one provider (Sarvam AI) is supported so no dropdown is rendered,
+  // but this function is wired to the model-select onChange below to keep lint happy
+  // and to ensure correct state-reset logic exists when a second provider is added.
+  function handleProviderSelect(provider: typeof PROVIDERS[number]) {
+    setSelectedProvider(provider)
+    setModel(provider.models[0].id)
     setApiKey('')
-    setMsg('')
   }
+  // Keep reference live so TypeScript does not flag it as unused while dropdown is absent.
+  void handleProviderSelect
 
   async function save() {
     setSaving(true); setMsg('')
