@@ -36,89 +36,41 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
 function pageScrapeOnce(): { rawText: string; url: string; ready: boolean } {
   const txt = (el: Element | null) => el ? ((el as HTMLElement).innerText || el.textContent || '').trim() : ''
 
-  // ── 1. Try known LinkedIn description selectors (current + legacy) ─────────
+  // Try common job-description container selectors across platforms
   const descSelectors = [
-    '.jobs-description__content',
-    '.jobs-description-content__text',
-    '.jobs-box__html-content',
-    '.job-description',
-    '[class*="jobs-description"]',
-    '[class*="job-description"]',
-    '[class*="description__text"]',
-    'article[class*="jobs"]',
+    // LinkedIn
+    '.jobs-description__content', '.jobs-description-content__text',
+    '.jobs-box__html-content', '[class*="jobs-description"]',
+    // Greenhouse
+    '#content', '.job__description', '[class*="job-description"]',
+    // Lever
+    '.posting-page', '.content-wrapper',
+    // Workday
+    '[data-automation-id="jobPostingDescription"]',
+    // Ashby
+    '[class*="job-posting"]', '[class*="jobPosting"]',
+    // Generic
+    '[class*="description"]', '[class*="job-detail"]', 'article', 'main',
   ]
-  let descText = ''
+
+  // Try to find a specific description container
   for (const sel of descSelectors) {
     const el = document.querySelector(sel)
     const t = txt(el)
-    if (t.length > 80) { descText = t; break }
-  }
-
-  // ── 2. Try known title selectors ───────────────────────────────────────────
-  const titleSelectors = [
-    '.job-details-jobs-unified-top-card__job-title',
-    '.jobs-unified-top-card__job-title',
-    '[class*="top-card"] h1',
-    '[class*="job-details"] h1',
-    'h1[class*="job"]',
-    'h1',
-  ]
-  let titleText = ''
-  for (const sel of titleSelectors) {
-    const t = txt(document.querySelector(sel))
-    if (t.length > 2) { titleText = t; break }
-  }
-
-  if (descText.length > 80) {
-    const headerSelectors = [
-      '.job-details-jobs-unified-top-card__primary-description-without-tagline',
-      '.jobs-unified-top-card__primary-description',
-      '[class*="top-card__primary-description"]',
-      '[class*="primary-description"]',
-    ]
-    let headerText = ''
-    for (const sel of headerSelectors) {
-      const t = txt(document.querySelector(sel))
-      if (t.length > 2) { headerText = t; break }
-    }
-    const parts: string[] = []
-    if (titleText) parts.push('JOB TITLE: ' + titleText)
-    if (headerText) parts.push(headerText)
-    parts.push('JOB DESCRIPTION:\n' + descText)
-    return { rawText: parts.join('\n\n').slice(0, 20000), url: location.href, ready: true }
-  }
-
-  // ── 3. Fallback: right-panel / detail pane stripped of sidebar ─────────────
-  const panelSelectors = [
-    '.jobs-details',
-    '.scaffold-layout__detail',
-    '[class*="jobs-details"]',
-    '[class*="job-view"]',
-    'main',
-  ]
-  for (const sel of panelSelectors) {
-    const panel = document.querySelector(sel) as HTMLElement | null
-    if (!panel) continue
-    const clone = panel.cloneNode(true) as HTMLElement
-    clone.querySelectorAll(
-      '.jobs-search-results-list, .scaffold-layout__list, nav, header, footer, [class*="sidebar"], [class*="search-results"]'
-    ).forEach(el => el.remove())
-    const t = clone.innerText.trim()
-    if (t.length > 80) {
-      const parts: string[] = []
-      if (titleText) parts.push('JOB TITLE: ' + titleText)
-      parts.push(t)
-      return { rawText: parts.join('\n\n').slice(0, 20000), url: location.href, ready: true }
+    if (t.length > 200) {
+      // Also grab the page title / h1 for context
+      const h1 = txt(document.querySelector('h1'))
+      const combined = (h1 ? `JOB TITLE: ${h1}\n\n` : '') + t
+      return { rawText: combined.slice(0, 20000), url: location.href, ready: true }
     }
   }
 
-  // ── 4. Last resort: grab all visible text on the page ─────────────────────
-  const bodyText = (document.body.innerText || '').trim()
-  if (bodyText.length > 200) {
-    return { rawText: bodyText.slice(0, 20000), url: location.href, ready: true }
-  }
-
-  return { rawText: '', url: location.href, ready: false }
+  // Universal fallback: grab everything visible on the page
+  // Remove script/style/nav noise first
+  const clone = document.body.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('script, style, noscript, svg, [aria-hidden="true"]').forEach(el => el.remove())
+  const bodyText = (clone.innerText || document.body.innerText || '').trim()
+  return { rawText: bodyText.slice(0, 20000), url: location.href, ready: true }
 }
 
 function pageContactScraper(): { name: string; linkedin: string }[] {
@@ -162,7 +114,7 @@ async function scrapeAndExtract(): Promise<void> {
     }
   }
 
-  if (!raw.rawText || raw.rawText.length < 80) {
+  if (!raw.rawText || raw.rawText.length < 50) {
     setState({ error: 'Could not read job content — scroll the job description into view and try again.', loading: false, loadingMsg: '' })
     return
   }
@@ -357,10 +309,10 @@ function renderResume(): HTMLElement {
         await api.downloadResume(s.tailored, filename, s.tailoredPayload)
         dlBtn.textContent = '✓ Downloaded'
         setTimeout(() => { dlBtn.textContent = '⬇ Download .docx'; (dlBtn as HTMLButtonElement).disabled = false }, 3000)
-      } catch {
+      } catch (e) {
         dlBtn.textContent = '⬇ Download .docx'
         ;(dlBtn as HTMLButtonElement).disabled = false
-        setState({ error: 'Could not generate document — try again' }); render()
+        setState({ error: e instanceof Error ? e.message : 'Could not generate document — try again' }); render()
       }
     }, 'btn primary full')
 

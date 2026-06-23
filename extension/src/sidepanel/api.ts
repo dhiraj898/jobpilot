@@ -45,7 +45,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
       body: JSON.stringify({ resumeText, filename, tailoredPayload }),
     })
-    if (!res.ok) throw new Error('Failed to generate document')
+    if (!res.ok) {
+      // Try to parse the error message from backend
+      try {
+        const json = await res.json() as { error?: string }
+        throw new Error(json.error || 'Failed to generate document')
+      } catch (e) {
+        if (e instanceof Error && e.message !== 'Failed to generate document') throw e
+        throw new Error('Failed to generate document')
+      }
+    }
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
