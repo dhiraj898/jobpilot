@@ -33,7 +33,7 @@ async function getAiCreds(userId: string, res: Response) {
 
 // sarvam-m is the recommended model for both extraction and JSON output tasks.
 function jsonModel(creds: { provider: string; model: string }): string {
-  return creds.model || 'sarvam-m'
+  return creds.model || 'sarvam-30b'
 }
 
 // ── Shared scoring prompt (used before and after tailoring) ──────────────────
@@ -400,7 +400,7 @@ router.post('/outreach-msg', async (req: AuthRequest, res: Response) => {
   }
 })
 
-const SARVAM_MODEL = 'sarvam-m'
+const SARVAM_MODEL = 'sarvam-30b'
 
 // Extract structured JD from raw page text — uses Sarvam-M (30B) if configured, else falls back to user's provider
 router.post('/extract-jd', async (req: AuthRequest, res: Response) => {
@@ -493,7 +493,7 @@ router.post('/parse-resume', upload.single('resume'), async (req: AuthRequest, r
   const usesSarvam = !creds.provider || creds.provider.includes('sarvam.ai')
   const providerUrl = usesSarvam ? SARVAM_URL : creds.provider
   // Use 105b for resume parsing — it's not a reasoning model so output tokens go directly to JSON
-  const model = creds.model || 'sarvam-m'
+  const model = creds.model || 'sarvam-30b'
 
   const systemPrompt = `You are a resume parser. Extract profile data and return ONLY a valid JSON object — no markdown, no explanation, no preamble.`
 

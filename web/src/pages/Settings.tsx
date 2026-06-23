@@ -8,7 +8,7 @@ const PROVIDERS = [
     url: 'https://api.sarvam.ai/v1',
     placeholder: 'sk_…',
     models: [
-      { id: 'sarvam-m', label: 'Sarvam-M (recommended — fast, accurate)' },
+      { id: 'sarvam-30b', label: 'Sarvam-M (recommended — fast, accurate)' },
       { id: 'sarvam-105b', label: 'Sarvam-105B (most capable)' },
     ],
   },
