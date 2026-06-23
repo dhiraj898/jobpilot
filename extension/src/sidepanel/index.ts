@@ -34,37 +34,88 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
 
 // Synchronous scrape — called repeatedly from sidepanel until content is ready
 function pageScrapeOnce(): { rawText: string; url: string; ready: boolean } {
-  const desc =
-    (document.querySelector('.jobs-description__content') as HTMLElement | null) ||
-    (document.querySelector('.jobs-description-content__text') as HTMLElement | null)
+  const txt = (el: Element | null) => el ? ((el as HTMLElement).innerText || el.textContent || '').trim() : ''
 
-  const descText = desc ? (desc.innerText || desc.textContent || '').trim() : ''
+  // ── 1. Try known LinkedIn description selectors (current + legacy) ─────────
+  const descSelectors = [
+    '.jobs-description__content',
+    '.jobs-description-content__text',
+    '.jobs-box__html-content',
+    '.job-description',
+    '[class*="jobs-description"]',
+    '[class*="job-description"]',
+    '[class*="description__text"]',
+    'article[class*="jobs"]',
+  ]
+  let descText = ''
+  for (const sel of descSelectors) {
+    const el = document.querySelector(sel)
+    const t = txt(el)
+    if (t.length > 80) { descText = t; break }
+  }
+
+  // ── 2. Try known title selectors ───────────────────────────────────────────
+  const titleSelectors = [
+    '.job-details-jobs-unified-top-card__job-title',
+    '.jobs-unified-top-card__job-title',
+    '[class*="top-card"] h1',
+    '[class*="job-details"] h1',
+    'h1[class*="job"]',
+    'h1',
+  ]
+  let titleText = ''
+  for (const sel of titleSelectors) {
+    const t = txt(document.querySelector(sel))
+    if (t.length > 2) { titleText = t; break }
+  }
 
   if (descText.length > 80) {
-    const titleEl =
-      document.querySelector('.job-details-jobs-unified-top-card__job-title') ||
-      document.querySelector('[class*="job-details"] h1') ||
-      document.querySelector('.jobs-unified-top-card__job-title')
-    const header =
-      document.querySelector('.job-details-jobs-unified-top-card__primary-description-without-tagline') ||
-      document.querySelector('.jobs-unified-top-card__primary-description')
-
+    const headerSelectors = [
+      '.job-details-jobs-unified-top-card__primary-description-without-tagline',
+      '.jobs-unified-top-card__primary-description',
+      '[class*="top-card__primary-description"]',
+      '[class*="primary-description"]',
+    ]
+    let headerText = ''
+    for (const sel of headerSelectors) {
+      const t = txt(document.querySelector(sel))
+      if (t.length > 2) { headerText = t; break }
+    }
     const parts: string[] = []
-    if (titleEl) parts.push('JOB TITLE: ' + (titleEl.textContent || '').trim())
-    if (header) parts.push((header.textContent || '').trim())
+    if (titleText) parts.push('JOB TITLE: ' + titleText)
+    if (headerText) parts.push(headerText)
     parts.push('JOB DESCRIPTION:\n' + descText)
     return { rawText: parts.join('\n\n').slice(0, 20000), url: location.href, ready: true }
   }
 
-  // Fallback: right-panel clone stripped of sidebar
-  const panel =
-    (document.querySelector('.jobs-details') as HTMLElement | null) ||
-    (document.querySelector('.scaffold-layout__detail') as HTMLElement | null)
-  if (panel) {
+  // ── 3. Fallback: right-panel / detail pane stripped of sidebar ─────────────
+  const panelSelectors = [
+    '.jobs-details',
+    '.scaffold-layout__detail',
+    '[class*="jobs-details"]',
+    '[class*="job-view"]',
+    'main',
+  ]
+  for (const sel of panelSelectors) {
+    const panel = document.querySelector(sel) as HTMLElement | null
+    if (!panel) continue
     const clone = panel.cloneNode(true) as HTMLElement
-    clone.querySelectorAll('.jobs-search-results-list, .scaffold-layout__list').forEach(el => el.remove())
-    const text = clone.innerText.trim()
-    if (text.length > 80) return { rawText: text.slice(0, 20000), url: location.href, ready: true }
+    clone.querySelectorAll(
+      '.jobs-search-results-list, .scaffold-layout__list, nav, header, footer, [class*="sidebar"], [class*="search-results"]'
+    ).forEach(el => el.remove())
+    const t = clone.innerText.trim()
+    if (t.length > 80) {
+      const parts: string[] = []
+      if (titleText) parts.push('JOB TITLE: ' + titleText)
+      parts.push(t)
+      return { rawText: parts.join('\n\n').slice(0, 20000), url: location.href, ready: true }
+    }
+  }
+
+  // ── 4. Last resort: grab all visible text on the page ─────────────────────
+  const bodyText = (document.body.innerText || '').trim()
+  if (bodyText.length > 200) {
+    return { rawText: bodyText.slice(0, 20000), url: location.href, ready: true }
   }
 
   return { rawText: '', url: location.href, ready: false }
