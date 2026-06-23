@@ -4,55 +4,12 @@ import { api } from '../api/client'
 
 const PROVIDERS = [
   {
-    label: 'Anthropic',
-    url: 'https://api.anthropic.com/v1',
-    placeholder: 'sk-ant-…',
-    models: [
-      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
-      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
-      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fastest)' },
-    ],
-  },
-  {
-    label: 'OpenAI',
-    url: 'https://api.openai.com/v1',
-    placeholder: 'sk-…',
-    models: [
-      { id: 'gpt-4o', label: 'GPT-4o (recommended)' },
-      { id: 'gpt-4o-mini', label: 'GPT-4o Mini (fast & cheap)' },
-      { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { id: 'o1-mini', label: 'o1 Mini (reasoning)' },
-    ],
-  },
-  {
     label: 'Sarvam AI',
     url: 'https://api.sarvam.ai/v1',
     placeholder: 'sk_…',
     models: [
-      { id: 'sarvam-30b', label: 'Sarvam-30B — used for JD extraction ★' },
-      { id: 'sarvam-105b', label: 'Sarvam-105B (enterprise, complex reasoning)' },
-    ],
-  },
-  {
-    label: 'OpenRouter',
-    url: 'https://openrouter.ai/api/v1',
-    placeholder: 'sk-or-…',
-    models: [
-      { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' },
-      { id: 'mistralai/mistral-large', label: 'Mistral Large' },
-      { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-      { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
-    ],
-  },
-  {
-    label: 'Groq',
-    url: 'https://api.groq.com/openai/v1',
-    placeholder: 'gsk_…',
-    models: [
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (fast)' },
-      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (instant)' },
-      { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-      { id: 'gemma2-9b-it', label: 'Gemma 2 9B' },
+      { id: 'sarvam-m', label: 'Sarvam-M (recommended — fast, accurate)' },
+      { id: 'sarvam-105b', label: 'Sarvam-105B (most capable)' },
     ],
   },
 ]
@@ -117,27 +74,8 @@ export default function Settings() {
             JobPilot uses your own API key — stored AES-256 encrypted in the database, never logged or shared.
           </p>
           <p className="text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2 mb-4">
-            ★ <strong>Sarvam AI (Sarvam-M 30B)</strong> is used automatically for JD extraction from job pages. Configure it below to enable that feature.
+            JobPilot uses <strong>Sarvam AI</strong> for JD extraction and resume tailoring. Get your API key at <a href="https://dashboard.sarvam.ai" target="_blank" rel="noreferrer" className="underline">dashboard.sarvam.ai</a>.
           </p>
-
-          {/* Provider grid */}
-          <div className="mb-4">
-            <label className="text-xs text-gray-500 block mb-2">Provider</label>
-            <div className="grid grid-cols-3 gap-2">
-              {PROVIDERS.map(p => (
-                <button
-                  key={p.label}
-                  onClick={() => handleProviderSelect(p)}
-                  className={`text-left px-3 py-2.5 rounded-lg border text-sm transition-colors
-                    ${selectedProvider.label === p.label
-                      ? 'border-brand bg-blue-50 text-blue-700 font-medium'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Model dropdown */}
           <div className="mb-4">
