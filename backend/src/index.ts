@@ -11,7 +11,14 @@ import aiRouter from './routes/ai'
 
 const app = express()
 app.use(helmet())
-app.use(cors({ origin: process.env.ALLOWED_ORIGIN || '*' }))
+if (!process.env.ALLOWED_ORIGIN) {
+  console.warn('ALLOWED_ORIGIN is not set — production frontend will be blocked by CORS')
+}
+const allowedOrigins = [
+  'http://localhost:5173',
+  process.env.ALLOWED_ORIGIN,
+].filter(Boolean) as string[]
+app.use(cors({ origin: allowedOrigins, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
 
 app.use('/auth', authRouter)
