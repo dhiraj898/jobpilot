@@ -40,7 +40,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [apps, setApps] = useState<Application[]>([])
   const [total, setTotal] = useState(0)
-  const [profile, setProfile] = useState<{ name?: string; resumeFileName?: string; skills?: string[]; currentTitle?: string; sarvamApiKey?: string } | null>(null)
+  const [profile, setProfile] = useState<{ name?: string; resumeFileName?: string; skills?: string[]; currentTitle?: string; hasAiKey?: boolean } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function Dashboard() {
     { label: 'Skills added', done: !!(profile?.skills?.length) },
     { label: 'First application', done: total > 0 },
     { label: 'Got an interview', done: interviews > 0 },
-    { label: 'Configure AI key', done: !!profile?.sarvamApiKey },
+    { label: 'Configure AI key', done: !!profile?.hasAiKey },
   ]
   const completeness = Math.round(checks.filter(c => c.done).length / checks.length * 100)
   const circum = 2 * Math.PI * 15.9
